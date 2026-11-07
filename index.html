@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AccFlow — โปรแกรมบัญชีออนไลน์</title>
+  <meta name="description" content="โปรแกรมบัญชีออนไลน์สำหรับ SME ไทย: ใบเสนอราคา ใบวางบิล ใบเสร็จ ซื้อ/ค่าใช้จ่าย สต็อก เงินเดือน สินทรัพย์ งบการเงิน ภาษี">
+  <meta name="theme-color" content="#0b1b3f">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563eb'/%3E%3Cpath d='M9 22V10h3l4 7 4-7h3v12' stroke='white' stroke-width='2.5' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo"><i data-lucide="book-open-check" class="ic"></i></div>
+        <div><b>AccFlow</b><small>โปรแกรมบัญชีออนไลน์</small></div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot" id="sidebar-foot"></div>
+    </aside>
+    <div class="scrim" onclick="document.body.classList.remove('nav-open')"></div>
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" onclick="document.body.classList.toggle('nav-open')" aria-label="เมนู"><i data-lucide="menu" class="ic"></i></button>
+        <div>
+          <h1 id="page-title">แดชบอร์ด</h1>
+        </div>
+        <div class="topbar-right">
+          <button id="sync-status" class="sync-pill" onclick="location.hash='#/settings/google'"></button>
+          <div class="dropdown" id="new-doc-dd">
+            <button class="btn btn-primary btn-sm" onclick="App.toggleDropdown('new-doc-dd', event)"><i data-lucide="plus" class="ic"></i><span class="hide-sm">สร้างเอกสารใหม่</span><i data-lucide="chevron-down" class="ic"></i></button>
+            <div class="dropdown-menu" id="new-doc-menu"></div>
+          </div>
+          <div class="user-chip" id="user-chip"></div>
+        </div>
+      </header>
+      <main class="content" id="view"></main>
+    </div>
+  </div>
+
+  <script src="vendor/lucide.min.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/accounting.js"></script>
+  <script src="js/print.js"></script>
+  <script src="js/demo.js"></script>
+  <script src="js/pages/dashboard.js"></script>
+  <script src="js/pages/documents.js"></script>
+  <script src="js/pages/contacts.js"></script>
+  <script src="js/pages/products.js"></script>
+  <script src="js/pages/payroll.js"></script>
+  <script src="js/pages/assets.js"></script>
+  <script src="js/pages/accounting.js"></script>
+  <script src="js/pages/reports.js"></script>
+  <script src="js/pages/settings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
