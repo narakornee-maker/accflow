@@ -29,6 +29,8 @@ const Docs = {
       payAccount: '1120', payMethod: 'transfer',
       payment: { paid: type === 'EX', date: d, account: '1120' },
       taxInvoiceNo: '', taxInvoiceDate: '',
+      contactName: '', contactPhone: '', contactEmail: '', project: '',
+      salesPerson: c.signName || '', salesPhone: c.phone || '',
     };
   },
 
@@ -40,6 +42,8 @@ const Docs = {
     Object.assign(doc, {
       contactId: src.contactId, items: JSON.parse(JSON.stringify(src.items || [])), discount: src.discount, vatMode: src.vatMode,
       whtRate: src.whtRate || 0, note: src.note, reference: src.no, refId: src.id,
+      contactName: src.contactName || '', contactPhone: src.contactPhone || '', contactEmail: src.contactEmail || '',
+      salesPerson: src.salesPerson || '', salesPhone: src.salesPhone || '', project: src.project || '',
     });
     if (doc.type === 'BN' || doc.type === 'GR') doc.dueDate = U.addDays(doc.date, ct.creditDays ?? Store.state.company.defaultCreditDays);
   },
@@ -364,12 +368,21 @@ Pages.docEdit = (view, type, id, query) => {
           </div>
         </div>
         <div class="party-box" id="party-box"></div>
+        <div class="form-grid g3 mt-1">
+          <div class="field"><label>ชื่อผู้ติดต่อ${T.party === 'customer' ? 'ลูกค้า' : 'ผู้ขาย'}</label><input data-f="contactName" value="${U.esc(doc.contactName || '')}" placeholder="เช่น คุณสมศรี" ${dis}></div>
+          <div class="field"><label>เบอร์โทรผู้ติดต่อ</label><input type="tel" data-f="contactPhone" value="${U.esc(doc.contactPhone || '')}" placeholder="08x-xxx-xxxx" ${dis}></div>
+          <div class="field"><label>อีเมลผู้ติดต่อ</label><input type="email" data-f="contactEmail" value="${U.esc(doc.contactEmail || '')}" ${dis}></div>
+        </div>
         ${ref ? `<div class="mt-1 small muted">อ้างอิงจาก <a href="#/doc/${ref.type}/${ref.id}">${DOC_TYPES[ref.type].short} ${U.esc(ref.no)}</a></div>` : ''}
       </div>
       <div class="form-grid">
         <div class="field"><label>เลขที่เอกสาร</label><input value="${U.esc(doc.no || Store.nextNo(type, doc.date, true))}" readonly></div>
         <div class="field"><label class="req">วันที่</label><input type="date" data-f="date" value="${doc.date}" ${dis}></div>
         ${type !== 'RC' ? `<div class="field"><label>${dueLabel}</label><input type="date" data-f="dueDate" value="${doc.dueDate || ''}" ${dis}></div>` : ''}
+        <div class="field"><label>${T.group === 'sales' ? 'พนักงานขาย / ผู้ออกเอกสาร' : 'ผู้สั่งซื้อ / ผู้บันทึก'}</label><input data-f="salesPerson" list="dl-sales" value="${U.esc(doc.salesPerson || '')}" ${dis}>
+          <datalist id="dl-sales">${s.employees.filter((e) => e.active !== false).map((e) => `<option value="${U.esc(e.name)}">`).join('')}</datalist></div>
+        <div class="field"><label>เบอร์โทร${T.group === 'sales' ? 'พนักงานขาย' : 'ผู้สั่งซื้อ'}</label><input type="tel" data-f="salesPhone" value="${U.esc(doc.salesPhone || '')}" ${dis}></div>
+        <div class="field full"><label>ชื่อโปรเจกต์ / งาน</label><input data-f="project" value="${U.esc(doc.project || '')}" placeholder="เช่น ติดตั้ง Solar Rooftop โรงงานชลบุรี" ${dis}></div>
         <div class="field"><label>เลขที่อ้างอิง</label><input data-f="reference" value="${U.esc(doc.reference || '')}" placeholder="เช่น PO ลูกค้า / เลขสัญญา" ${dis}></div>
         ${isPurchase && type !== 'PO' ? `<div class="field"><label>เลขที่ใบกำกับภาษี (ผู้ขาย)</label><input data-f="taxInvoiceNo" value="${U.esc(doc.taxInvoiceNo || '')}" ${dis}></div>
           <div class="field"><label>วันที่ใบกำกับภาษี</label><input type="date" data-f="taxInvoiceDate" value="${doc.taxInvoiceDate || ''}" ${dis}></div>` : ''}
@@ -481,6 +494,9 @@ Pages.docEdit = (view, type, id, query) => {
       setField(t.dataset.f, v);
       if (t.dataset.f === 'contactId') {
         renderParty();
+        const cc = Store.get('contacts', v) || {};
+        doc.contactName = cc.contactPerson || ''; doc.contactPhone = cc.contactPhone || cc.phone || ''; doc.contactEmail = cc.email || '';
+        ['contactName', 'contactPhone', 'contactEmail'].forEach((k) => { const el = form.querySelector(`[data-f=${k}]`); if (el) el.value = doc[k]; });
         const ct = Store.get('contacts', v);
         if (ct && ['BN', 'GR', 'EX'].includes(type)) { doc.dueDate = U.addDays(doc.date, ct.creditDays ?? s.company.defaultCreditDays); const dd = form.querySelector('[data-f=dueDate]'); if (dd) dd.value = doc.dueDate; }
         if (ct && ct.defaultWht !== undefined && ct.defaultWht !== '' && !doc.whtRate) { doc.whtRate = +ct.defaultWht || 0; }

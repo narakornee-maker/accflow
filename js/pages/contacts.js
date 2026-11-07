@@ -25,7 +25,7 @@ Pages.contacts = (view, tab = 'customer', query = {}) => {
       <button class="btn btn-outline btn-sm" id="c-export">${U.icon('download')}ส่งออก CSV</button></div>
     <div class="table-wrap">${list.length ? `<table class="tbl"><thead><tr><th>รหัส</th><th>ชื่อ</th><th>เลขผู้เสียภาษี / สาขา</th><th>ติดต่อ</th><th class="num">เครดิต (วัน)</th>
       <th class="num">${tab === 'customer' ? 'ลูกหนี้คงค้าง' : 'เจ้าหนี้คงค้าง'}</th><th></th></tr></thead><tbody>
-      ${list.map((c) => `<tr><td class="fw-6">${U.esc(c.code)}</td><td><b>${U.esc(c.name)}</b>${c.contactPerson ? `<div class="muted small">ผู้ติดต่อ: ${U.esc(c.contactPerson)}</div>` : ''}</td>
+      ${list.map((c) => `<tr><td class="fw-6">${U.esc(c.code)}</td><td><b>${U.esc(c.name)}</b>${c.contactPerson ? `<div class="muted small">ผู้ติดต่อ: ${U.esc(c.contactPerson)}${c.contactPhone ? ' · ' + U.esc(c.contactPhone) : ''}</div>` : ''}</td>
         <td>${U.esc(c.taxId || '-')}<div class="muted small">${U.esc(c.branch || '')} · ${c.entityType === 'individual' ? 'บุคคลธรรมดา' : 'นิติบุคคล'}</div></td>
         <td class="small">${U.esc(c.phone || '')}<br>${U.esc(c.email || '')}</td><td class="num">${c.creditDays ?? '-'}</td><td class="num fw-6">${U.money(bal(c))}</td>
         <td class="actions"><a class="btn btn-xs btn-soft" href="#/doc/${tab === 'customer' ? 'QT' : 'PO'}/new?contact=${c.id}">${U.icon('file-plus')}สร้างเอกสาร</a>
@@ -49,7 +49,8 @@ Pages.contactForm = (id, type = 'customer', onSaved) => {
       <div class="field"><label>ประเภทผู้เสียภาษี</label><select name="entityType">${[['company', 'นิติบุคคล (ภ.ง.ด.53)'], ['individual', 'บุคคลธรรมดา (ภ.ง.ด.3)']].map(([v, l]) => U.opt(v, l, c.entityType)).join('')}</select></div>
       <div class="field"><label>เลขประจำตัวผู้เสียภาษี (13 หลัก)</label><input name="taxId" maxlength="13" value="${U.esc(c.taxId || '')}" inputmode="numeric"></div>
       <div class="field"><label>สาขา</label><input name="branch" value="${U.esc(c.branch || '')}" placeholder="สำนักงานใหญ่ / 00001"></div>
-      <div class="field"><label>ผู้ติดต่อ</label><input name="contactPerson" value="${U.esc(c.contactPerson || '')}"></div>
+      <div class="field"><label>ชื่อผู้ติดต่อ</label><input name="contactPerson" value="${U.esc(c.contactPerson || '')}"></div>
+      <div class="field"><label>เบอร์โทรผู้ติดต่อ</label><input type="tel" name="contactPhone" value="${U.esc(c.contactPhone || '')}"></div>
       <div class="field full"><label>ที่อยู่</label><textarea name="address" rows="2">${U.esc(c.address || '')}</textarea></div>
       <div class="field"><label>โทรศัพท์</label><input name="phone" value="${U.esc(c.phone || '')}"></div>
       <div class="field"><label>อีเมล</label><input type="email" name="email" value="${U.esc(c.email || '')}"></div>

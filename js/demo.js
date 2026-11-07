@@ -25,8 +25,8 @@ const Demo = {
     });
 
     const C = (code, name, type, extra = {}) => { const c = { id: id(), code, name, type, entityType: 'company', branch: 'สำนักงานใหญ่', creditDays: 30, ...extra }; s.contacts.push(c); return c; };
-    const bjc = C('C0001', 'บริษัท บีเจซี เพาเวอร์ จำกัด', 'customer', { taxId: '0105551234567', address: '123 ถนนวิภาวดีรังสิต แขวงลาดยาว เขตจตุจักร กรุงเทพฯ 10900', phone: '02-555-0101', contactPerson: 'คุณวรวุฒิ', defaultWht: 3 });
-    const green = C('C0002', 'บริษัท กรีนเอนเนอร์จี โซลูชั่น จำกัด', 'customer', { taxId: '0105559876543', address: '55 นิคมอุตสาหกรรมอมตะนคร จ.ชลบุรี 20000', phone: '038-111-222', creditDays: 45, defaultWht: 3 });
+    const bjc = C('C0001', 'บริษัท บีเจซี เพาเวอร์ จำกัด', 'customer', { taxId: '0105551234567', address: '123 ถนนวิภาวดีรังสิต แขวงลาดยาว เขตจตุจักร กรุงเทพฯ 10900', phone: '02-555-0101', contactPerson: 'คุณวรวุฒิ', contactPhone: '081-234-5678', defaultWht: 3 });
+    const green = C('C0002', 'บริษัท กรีนเอนเนอร์จี โซลูชั่น จำกัด', 'customer', { taxId: '0105559876543', address: '55 นิคมอุตสาหกรรมอมตะนคร จ.ชลบุรี 20000', phone: '038-111-222', contactPerson: 'คุณอรอุมา', contactPhone: '086-555-1212', creditDays: 45, defaultWht: 3 });
     const somchai = C('C0003', 'คุณสมชาย ใจดี', 'customer', { entityType: 'individual', taxId: '3100500123456', address: '88 หมู่ 3 ต.บางพูด อ.ปากเกร็ด จ.นนทบุรี 11120', creditDays: 0 });
     const itsup = C('S0001', 'บริษัท โซลาร์ซัพพลาย จำกัด', 'supplier', { taxId: '0105560011223', address: '77 ถนนบางนา-ตราด กม.5 สมุทรปราการ', creditDays: 30 });
     const mea = C('S0002', 'การไฟฟ้านครหลวง', 'supplier', { taxId: '0994000165510', address: '30 ซอยชิดลม ถนนเพลินจิต ปทุมวัน กรุงเทพฯ', creditDays: 0 });
@@ -43,7 +43,8 @@ const Demo = {
     const it = (p, qty, price, description) => ({ productId: p ? p.id : '', description: description || p.name, qty, unit: p ? p.unit : 'งาน', price: price ?? (p ? p.salePrice : 0), discount: 0, account: '' });
     const doc = (type, date, contact, items, extra = {}) => {
       const d = { id: id(), type, no: Store.nextNo(type, date), date, dueDate: U.addDays(date, type === 'QT' ? 30 : contact.creditDays || 0), contactId: contact.id, items,
-        discount: 0, vatMode: 'exclusive', whtRate: 0, note: '', reference: '', refId: '', status: 'approved', payAccount: '1120', payMethod: 'transfer', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...extra };
+        discount: 0, vatMode: 'exclusive', whtRate: 0, note: '', reference: '', refId: '', status: 'approved',
+        contactName: contact.contactPerson || '', contactPhone: contact.contactPhone || '', contactEmail: '', salesPerson: type === 'QT' || type === 'BN' || type === 'RC' ? 'นายณัฐพล วิศวกร' : 'นางสาวปวีณา บัญชีดี', salesPhone: '089-123-4567', project: '', payAccount: '1120', payMethod: 'transfer', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), ...extra };
       s.documents.push(d); return d;
     };
     const chain = (qtDate, contact, items, { bnAfter = 3, rcAfter = 20, wht = 3, paid = true, note = '' } = {}) => {
