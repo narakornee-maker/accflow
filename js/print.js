@@ -2,9 +2,9 @@
  * Print: Preview + edit panel, A4 templates (modern / classic), payslip
  * ============================================================ */
 const Print = {
-  DEFAULTS: { template: 'modern', color: '#16a34a', copies: 'original', showLogo: true, showStamp: true, showDiscount: true, showVat: true, useSign: true, useStampImg: true,
+  DEFAULTS: { template: 'modern', color: '#2E7D32', copies: 'original', showLogo: true, showStamp: true, showDiscount: true, showVat: true, useSign: true, useStampImg: true,
     signLeft: '', signRight: '', footer: '' },
-  COLORS: ['#16a34a', '#2563eb', '#1e3a8a', '#0d9488', '#ea580c', '#7c3aed', '#be123c', '#111827'],
+  COLORS: ['#2E7D32', '#388E3C', '#FF8F00', '#2563eb', '#1e3a8a', '#0d9488', '#7c3aed', '#111827'],
 
   opts() { return { ...this.DEFAULTS, ...(Store.state.settings.print || {}) }; },
 
@@ -84,14 +84,14 @@ const Print = {
 
     /* payslip (legacy layout) */
     .co h1 { font-size: 18px; margin: 0 0 2px; } .co { line-height: 1.55; color: #374151; } .co img { max-height: 56px; }
-    .doc-title { text-align: right; } .doc-title h2 { font-size: 21px; margin: 0; color: #1d4ed8; }
+    .doc-title { text-align: right; } .doc-title h2 { font-size: 21px; margin: 0; color: var(--c); }
     .doc-title .copy { display: inline-block; margin-top: 4px; font-size: 11px; border: 1px solid #1d4ed8; color: #1d4ed8; border-radius: 4px; padding: 1px 8px; }
     .box { display: grid; grid-template-columns: 1.5fr 1fr; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 14px; overflow: hidden; }
     .box > div { padding: 10px 12px; line-height: 1.6; } .box > div + div { border-left: 1px solid #cbd5e1; background: #f8fafc; }
     .lbl { color: #6b7280; font-size: 11.5px; } .kv { display: flex; justify-content: space-between; gap: 10px; }
     .top { display: flex; justify-content: space-between; gap: 20px; }
     table.items { width: 100%; border-collapse: collapse; margin-top: 14px; }
-    .items th { background: #1e3a8a; color: #fff; font-weight: 600; padding: 7px 8px; font-size: 12px; text-align: left; }
+    .items th { background: var(--c); color: #fff; font-weight: 600; padding: 7px 8px; font-size: 12px; text-align: left; }
     .items td { padding: 7px 8px; border-bottom: 1px solid #e5e7eb; }
     .foot { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; margin-top: 12px; }
     .tot div { display: flex; justify-content: space-between; padding: 4px 0; }
@@ -109,10 +109,10 @@ const Print = {
       ${toolbar ? `<div class="tbar"><b>${U.esc(title)}</b><button onclick="print()">🖨️ พิมพ์ / บันทึก PDF</button></div>` : ''}${pages}</body></html>`;
   },
 
-  open(title, pages) {
+  open(title, pages, color = '#2E7D32') {
     const w = window.open('', '_blank');
     if (!w) return U.toast('เบราว์เซอร์บล็อกหน้าต่างใหม่ กรุณาอนุญาต Pop-up', 'error');
-    w.document.write(this.html(title, pages, '#2563eb', true));
+    w.document.write(this.html(title, pages, color, true));
     w.document.close(); w.focus();
   },
 
@@ -223,7 +223,7 @@ const Print = {
       <div class="spacer"></div>
       <div class="sign"><div><div class="sig-sp"></div><div class="ln">${U.esc(signL)}</div><div class="d">วันที่ ........../........../..........</div></div><div class="stamp">${stampHtml}</div>
         <div>${sigImg}<div class="ln">${U.esc(signR)}${co.signName ? `<br>(${U.esc(co.signName)})` : ''}</div><div class="d">วันที่ ${useSig ? fullDate : '........../........../..........'}</div></div></div>
-      <div class="pfoot">${U.esc(o.footer || 'ออกโดยโปรแกรมบัญชีออนไลน์ AccFlow')}</div></div>`;
+      <div class="pfoot">${U.esc(o.footer || 'ออกโดยระบบบัญชี VoltGrid')}</div></div>`;
 
     return copies.map((cp) => (o.template === 'classic' ? classic(cp) : modern(cp))).join('');
   },
@@ -324,6 +324,6 @@ const Print = {
         <div class="baht">(${U.bahtText(l.net)})</div>
         <div class="sign"><div>${co.signImage ? `<img class="sig" src="${co.signImage}" alt="ลายเซ็น">` : '<div class="sig-sp"></div>'}<div class="line">ผู้จ่ายเงิน${co.signName ? `<br>(${U.esc(co.signName)})` : ''}</div></div><div><div class="sig-sp"></div><div class="line">ผู้รับเงิน<br>(${U.esc(e.name || '')})</div></div></div></div>`;
     }).join('');
-    this.open(`สลิปเงินเดือน ${run.no}`, pages);
+    this.open(`สลิปเงินเดือน ${run.no}`, pages, '#2E7D32');
   },
 };

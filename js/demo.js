@@ -3,14 +3,18 @@
  * ============================================================ */
 const Demo = {
   async confirmLoad() {
-    if (Store.state.documents.length && !(await U.confirm('โหลดข้อมูลตัวอย่าง? ข้อมูลปัจจุบันในเครื่องจะถูกแทนที่', { danger: true, okText: 'โหลดข้อมูลตัวอย่าง' }))) return;
-    this.load(); U.toast('โหลดข้อมูลตัวอย่างแล้ว'); App.go('#/dashboard');
+    if (!Auth.isAdmin()) return U.toast('เฉพาะผู้ดูแลระบบ', 'error');
+    if (!(await U.confirm('โหลดข้อมูลตัวอย่าง? ข้อมูลของ<b>ทุกคน</b>บนเซิร์ฟเวอร์จะถูกแทนที่ด้วยข้อมูลทดลอง (ระบบสำรองข้อมูลเดิมไว้ก่อน)', { danger: true, okText: 'โหลดข้อมูลตัวอย่าง' }))) return;
+    this.load();
+    try { await Sync.overwrite(Store.state, 'โหลดข้อมูลตัวอย่าง'); } catch (e) { U.toast(e.message, 'error'); }
+    U.toast('โหลดข้อมูลตัวอย่างแล้ว'); App.go('#/dashboard');
   },
 
   load() {
-    const keep = { gasUrl: Store.state.settings.gasUrl, gasToken: Store.state.settings.gasToken, autoSync: Store.state.settings.autoSync };
+    const prev = Store.state;
     const s = Store.defaults();
-    s.settings = { ...s.settings, ...keep };
+    s.settings = { ...s.settings, autoSync: prev.settings.autoSync, print: prev.settings.print };
+    ['logo', 'signImage', 'stampImage'].forEach((k) => { if (prev.company[k]) s.company[k] = prev.company[k]; });
     Store.state = s;
     const today = U.today();
     const fy = ACC.fiscalStart(today);
@@ -19,9 +23,9 @@ const Demo = {
     const id = () => U.uid();
 
     Object.assign(s.company, {
-      name: 'บริษัท ตัวอย่าง เอ็นจิเนียริ่ง จำกัด', nameEn: 'Sample Engineering Co., Ltd.', taxId: '0105566000001', branch: 'สำนักงานใหญ่',
-      address: '99/9 ถนนพหลโยธิน แขวงจตุจักร เขตจตุจักร กรุงเทพมหานคร 10900', phone: '02-123-4567', email: 'account@sample.co.th',
-      businessType: 'mixed', vatRegistered: true, vatRate: 7, vatPoint: 'payment', signName: 'นายพัฒนพร ตัวอย่าง',
+      name: COMPANY_NAME, nameEn: 'VoltGrid Energy & Solutions Co., Ltd.', taxId: '0105566000001', branch: 'สำนักงานใหญ่',
+      address: '99/9 ถนนพหลโยธิน แขวงจตุจักร เขตจตุจักร กรุงเทพมหานคร 10900', phone: '02-123-4567', email: 'account@voltgrid.co.th',
+      businessType: 'mixed', vatRegistered: true, vatRate: 7, vatPoint: 'payment', signName: prev.company.signName || 'นายพัฒนพร ตัวอย่าง',
     });
 
     const C = (code, name, type, extra = {}) => { const c = { id: id(), code, name, type, entityType: 'company', branch: 'สำนักงานใหญ่', creditDays: 30, ...extra }; s.contacts.push(c); return c; };
@@ -108,6 +112,6 @@ const Demo = {
       s.payrolls.push({ id: id(), no: Store.nextNo('PS', pd), period: `${y}-${U.pad(mm)}`, payDate: pd, payAccount: '1120', status: 'approved',
         lines: [e1, e2, e3].map((e) => ({ employeeId: e.id, salary: e.salary, ot: e === e3 ? 1500 : 0, bonus: 0, otherIncome: 0, deduct: 0, whtOverride: '' })) });
     }
-    Store.save();
+    Store.save({ sync: false });
   },
 };

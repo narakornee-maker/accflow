@@ -2,7 +2,14 @@
  * Settings: กิจการ / ภาษี / เงินเดือน / Google / ข้อมูล
  * ============================================================ */
 Pages.settings = (view, tab = 'company') => {
-  const TABS = [['company', 'building', 'ข้อมูลกิจการ'], ['tax', 'percent', 'ภาษีและเอกสาร'], ['payroll', 'id-card', 'เงินเดือน'], ['sign', 'signature', 'ลายเซ็นและตราประทับ'], ['google', 'cloud', 'Google Drive / Sheets'], ['data', 'database', 'สำรองและกู้คืนข้อมูล']];
+  const TABS = [['company', 'building', 'ข้อมูลกิจการ'], ['tax', 'percent', 'ภาษีและเอกสาร'], ['payroll', 'id-card', 'เงินเดือน'], ['sign', 'signature', 'ลายเซ็นและตราประทับ'],
+    ['users', 'users', 'ผู้ใช้งาน'], ['activity', 'history', 'ประวัติการใช้งาน'], ['google', 'cloud', 'เซิร์ฟเวอร์ / Google'], ['data', 'database', 'สำรองและกู้คืนข้อมูล']];
+  if (!Auth.isAdmin()) {
+    App.setTitle('ตั้งค่าการใช้งาน');
+    view.innerHTML = `<div class="card"><div class="empty">${U.icon('lock')}<h4>เฉพาะผู้ดูแลระบบ</h4><p>การตั้งค่าระบบจัดการโดยผู้ดูแลระบบ — แก้ไขข้อมูลส่วนตัวได้ที่ “โปรไฟล์ของฉัน”</p>
+      <button class="btn btn-primary mt-1" onclick="Auth.profileModal()">${U.icon('user-round')}โปรไฟล์ของฉัน</button></div></div>`;
+    return;
+  }
   if (!TABS.some((t) => t[0] === tab)) tab = 'company';
   App.setTitle('ตั้งค่าการใช้งาน');
   const s = Store.state, c = s.company, st = s.settings;
@@ -172,59 +179,105 @@ Pages.settings = (view, tab = 'company') => {
     const sd = U.$('#sg-del'); if (sd) sd.onclick = async () => { if (await U.confirm('ลบลายเซ็นอิเล็กทรอนิกส์?', { danger: true })) { c.signImage = ''; commit('ลบลายเซ็นแล้ว'); } };
     const td = U.$('#st-del'); if (td) td.onclick = async () => { if (await U.confirm('ลบรูปตราประทับ?', { danger: true })) { c.stampImage = ''; commit('ลบตราประทับแล้ว'); } };
   } else if (tab === 'google') {
+    const conn = Conn.get();
     body.innerHTML = `
-      <div class="alert ${Sync.enabled() ? 'alert-ok' : 'alert-info'}">${U.icon(Sync.enabled() ? 'cloud' : 'cloud-off')}<div>${Sync.enabled() ? `เชื่อมต่อ Google แล้ว · ซิงก์ล่าสุด ${s.meta.syncedAt ? new Date(s.meta.syncedAt).toLocaleString('th-TH') : '-'}` : 'ยังไม่ได้เชื่อมต่อ — ข้อมูลเก็บอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น'}</div></div>
-      <h4 class="mt-3">วิธีตั้งค่า (ทำครั้งเดียว ~5 นาที)</h4>
-      <ol class="small" style="line-height:1.9;color:var(--text-2)">
-        <li>เปิด <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener">script.google.com</a> → สร้างโปรเจกต์ใหม่ ตั้งชื่อ “AccFlow Backend”</li>
-        <li>คัดลอกโค้ดจากไฟล์ <code>google-apps-script/Code.gs</code> ใน repository ไปวางแทนโค้ดเดิม แล้วกดบันทึก</li>
-        <li>เลือกฟังก์ชัน <code>setup</code> แล้วกด ▶ Run → อนุญาตสิทธิ์ → ดู <b>API Token</b> ใน Execution log</li>
-        <li>กด <b>Deploy → New deployment</b> → ประเภท <b>Web app</b> · Execute as: <b>Me</b> · Who has access: <b>Anyone</b> → Deploy แล้วคัดลอก URL</li>
-        <li>นำ URL และ Token มาวางด้านล่าง แล้วกด “ทดสอบการเชื่อมต่อ”</li>
-      </ol>
-      <div class="form-grid mt-2">
-        <div class="field full"><label>Web App URL</label><input name="gasUrl" value="${U.esc(st.gasUrl)}" placeholder="https://script.google.com/macros/s/XXXX/exec"></div>
-        <div class="field full"><label>API Token</label><input type="password" name="gasToken" value="${U.esc(st.gasToken)}" autocomplete="off"></div>
-        <label class="check full"><input type="checkbox" name="autoSync" ${st.autoSync ? 'checked' : ''}> ซิงก์อัตโนมัติทุกครั้งที่บันทึกข้อมูล</label>
+      <div class="alert ${Sync.enabled() ? 'alert-ok' : 'alert-warn'}">${U.icon(Sync.enabled() ? 'cloud' : 'cloud-off')}<div>${Sync.enabled() ? `เชื่อมต่อเซิร์ฟเวอร์แล้ว · ซิงก์ล่าสุด ${s.meta.syncedAt ? new Date(s.meta.syncedAt).toLocaleString('th-TH') : '-'}${s.meta.savedBy ? ` โดย ${U.esc(s.meta.savedBy)}` : ''}` : 'ยังไม่ได้เชื่อมต่อ'}</div></div>
+      <h4 class="mt-3">ลิงก์เข้าใช้งานสำหรับพนักงาน</h4>
+      <p class="muted small">ส่งลิงก์นี้ให้พนักงาน เปิดครั้งแรกระบบจะตั้งค่าการเชื่อมต่อให้อัตโนมัติ แล้วไปหน้าลงทะเบียน/เข้าสู่ระบบ</p>
+      <div class="flex"><input id="inv-link" readonly value="${U.esc(Conn.inviteLink())}"><button class="btn btn-outline" id="inv-copy">${U.icon('copy')}คัดลอก</button></div>
+      <div class="form-grid mt-3">
+        <div class="field full"><label>Web App URL (Google Apps Script)</label><input id="g-url" value="${U.esc(conn.gasUrl || '')}" placeholder="https://script.google.com/macros/s/XXXX/exec"></div>
+        <label class="check full"><input type="checkbox" id="g-auto" ${st.autoSync ? 'checked' : ''}> ซิงก์อัตโนมัติทุกครั้งที่บันทึกข้อมูล</label>
       </div>
       <div class="btn-group mt-2">
-        <button class="btn btn-primary" id="set-save">${U.icon('save')}บันทึก</button>
-        <button class="btn btn-outline" id="g-test">${U.icon('plug-zap')}ทดสอบการเชื่อมต่อ</button>
-        <button class="btn btn-outline" id="g-push" ${Sync.enabled() ? '' : 'disabled'}>${U.icon('cloud-upload')}ซิงก์ขึ้น + อัปเดต Google Sheets</button>
-        <button class="btn btn-outline" id="g-pull" ${Sync.enabled() ? '' : 'disabled'}>${U.icon('cloud-download')}ดึงข้อมูลจาก Google</button>
-        <button class="btn btn-success" id="g-backup" ${Sync.enabled() ? '' : 'disabled'}>${U.icon('archive')}สำรองข้อมูลตอนนี้</button>
+        <button class="btn btn-primary" id="g-save">${U.icon('save')}บันทึก</button>
+        <button class="btn btn-outline" id="g-push">${U.icon('cloud-upload')}ซิงก์ + อัปเดต Google Sheets</button>
+        <button class="btn btn-outline" id="g-pull">${U.icon('cloud-download')}ดึงข้อมูลล่าสุด</button>
+        <button class="btn btn-success" id="g-backup">${U.icon('archive')}สำรองข้อมูลตอนนี้</button>
       </div>
-      <h4 class="mt-3">ไฟล์สำรองบน Google Drive</h4><div id="g-backups" class="mt-1 muted small">${Sync.enabled() ? 'กำลังโหลด…' : '-'}</div>`;
-    bindSave((f) => Object.assign(st, { gasUrl: f.gasUrl, gasToken: f.gasToken, autoSync: f.autoSync }));
+      <div class="alert alert-info mt-3">${U.icon('shield-check')}<div>การเข้าสู่ระบบด้วย Google: ${Auth.cfg && Auth.cfg.google ? '<b>เปิดใช้งานแล้ว</b>' : 'ยังไม่เปิด — ใส่ <code>GOOGLE_CLIENT_ID</code> ใน Code.gs'}${Auth.cfg && Auth.cfg.domain ? ` · จำกัดเฉพาะ @${U.esc(Auth.cfg.domain)}` : ''} · ล็อกอินด้วยรหัสผ่าน: ${!Auth.cfg || Auth.cfg.password ? 'เปิด' : 'ปิด (Google เท่านั้น)'}</div></div>
+      <h4 class="mt-3">ไฟล์สำรองบน Google Drive</h4><div id="g-backups" class="mt-1 muted small">กำลังโหลด…</div>`;
+    U.$('#inv-copy').onclick = () => { navigator.clipboard.writeText(U.$('#inv-link').value).then(() => U.toast('คัดลอกลิงก์แล้ว')); };
     const busy = async (btn, fn) => { btn.disabled = true; const h = btn.innerHTML; btn.innerHTML = `${U.icon('loader-2')}กำลังดำเนินการ…`; U.refreshIcons(); try { await fn(); } catch (e) { U.toast(e.message, 'error'); } finally { btn.disabled = false; btn.innerHTML = h; U.refreshIcons(); } };
-    U.$('#g-test').onclick = (e) => busy(e.currentTarget, async () => {
-      const f = U.formData(body); Object.assign(st, { gasUrl: f.gasUrl, gasToken: f.gasToken }); Store.save({ sync: false, silent: true });
-      const r = await Sync.call('ping'); U.toast(`เชื่อมต่อสำเร็จ: ${r.app || 'AccFlow'} (${r.user || 'Google'})`); App.render();
+    U.$('#g-save').onclick = (e) => busy(e.currentTarget, async () => {
+      const url = U.$('#g-url').value.trim();
+      if (url !== conn.gasUrl) { await Sync.call('config', {}, { url }); Conn.set({ gasUrl: url }); }
+      st.autoSync = U.$('#g-auto').checked; Store.save(); U.toast('บันทึกแล้ว'); App.render();
     });
     U.$('#g-push').onclick = (e) => busy(e.currentTarget, async () => { await Sync.push({ sheets: true }); U.toast('ซิงก์ข้อมูลและอัปเดต Google Sheets แล้ว'); });
-    U.$('#g-pull').onclick = (e) => busy(e.currentTarget, async () => {
-      if (!(await U.confirm('แทนที่ข้อมูลในเครื่องด้วยข้อมูลจาก Google?', { danger: true }))) return;
-      const d = await Sync.pull(); if (!d) return U.toast('ยังไม่มีข้อมูลบน Google', 'warning');
-      d.settings = { ...d.settings, gasUrl: st.gasUrl, gasToken: st.gasToken }; Store.replace(d); U.toast('ดึงข้อมูลแล้ว'); App.render();
-    });
+    U.$('#g-pull').onclick = (e) => busy(e.currentTarget, async () => { await Sync.refresh({ quiet: false }); });
     U.$('#g-backup').onclick = (e) => busy(e.currentTarget, async () => { await Sync.push({ sheets: true }); const r = await Sync.call('backup'); U.toast(`สำรองข้อมูลแล้ว: ${r.name}`); loadBackups(); });
     const loadBackups = async () => {
-      const el = U.$('#g-backups'); if (!el || !Sync.enabled()) return;
+      const el = U.$('#g-backups'); if (!el) return;
       try {
         const r = await Sync.call('listBackups');
-        el.innerHTML = r.files && r.files.length ? `<table class="tbl compact"><thead><tr><th>ไฟล์</th><th>วันที่</th><th class="num">ขนาด</th><th></th></tr></thead><tbody>
+        el.innerHTML = `${r.sheetUrl ? `<p><a href="${U.esc(r.sheetUrl)}" target="_blank" rel="noopener">${U.icon('sheet')} เปิด Google Sheets ฐานข้อมูล</a> · <a href="${U.esc(r.folderUrl)}" target="_blank" rel="noopener">${U.icon('folder')} เปิดโฟลเดอร์ใน Drive</a></p>` : ''}
+          ${r.files && r.files.length ? `<table class="tbl compact"><thead><tr><th>ไฟล์</th><th>วันที่</th><th class="num">ขนาด</th><th></th></tr></thead><tbody>
           ${r.files.map((f) => `<tr><td>${U.esc(f.name)}</td><td>${new Date(f.date).toLocaleString('th-TH')}</td><td class="num">${(f.size / 1024).toFixed(1)} KB</td>
-          <td class="actions"><button class="btn btn-xs btn-outline" data-restore="${U.esc(f.id)}">${U.icon('rotate-ccw')}กู้คืน</button></td></tr>`).join('')}</tbody></table>
-          ${r.sheetUrl ? `<p><a href="${U.esc(r.sheetUrl)}" target="_blank" rel="noopener">${U.icon('sheet')} เปิด Google Sheets ฐานข้อมูล</a> · <a href="${U.esc(r.folderUrl)}" target="_blank" rel="noopener">${U.icon('folder')} เปิดโฟลเดอร์ใน Drive</a></p>` : ''}`
-          : 'ยังไม่มีไฟล์สำรอง';
+          <td class="actions"><button class="btn btn-xs btn-outline" data-restore="${U.esc(f.id)}">${U.icon('rotate-ccw')}กู้คืน</button></td></tr>`).join('')}</tbody></table>` : 'ยังไม่มีไฟล์สำรอง'}`;
         U.refreshIcons();
         el.querySelectorAll('[data-restore]').forEach((b) => b.onclick = async () => {
-          if (!(await U.confirm('กู้คืนข้อมูลจากไฟล์สำรองนี้? ข้อมูลปัจจุบันจะถูกแทนที่', { danger: true, okText: 'กู้คืน' }))) return;
-          try { const x = await Sync.call('restore', { id: b.dataset.restore }); x.data.settings = { ...x.data.settings, gasUrl: st.gasUrl, gasToken: st.gasToken }; Store.replace(x.data); Store.save(); U.toast('กู้คืนข้อมูลแล้ว'); App.render(); } catch (e) { U.toast(e.message, 'error'); }
+          if (!(await U.confirm('กู้คืนข้อมูลจากไฟล์สำรองนี้? ข้อมูลปัจจุบันของ<b>ทุกคน</b>จะถูกแทนที่ (ระบบจะสำรองข้อมูลปัจจุบันไว้ก่อน)', { danger: true, okText: 'กู้คืน' }))) return;
+          try { const x = await Sync.call('restore', { id: b.dataset.restore }); Store.replace(x.data); Store.state.meta.dirty = false; Store.persist(); U.toast('กู้คืนข้อมูลแล้ว'); App.render(); } catch (e) { U.toast(e.message, 'error'); }
         });
       } catch (e) { el.textContent = 'โหลดรายการไม่สำเร็จ: ' + e.message; }
     };
     loadBackups();
+  } else if (tab === 'users') {
+    body.style.maxWidth = 'none';
+    body.innerHTML = `<div class="flex between wrap mb-2"><p class="muted small" style="margin:0">พนักงานลงทะเบียนเอง แล้วผู้ดูแลระบบอนุมัติที่นี่ · ข้อมูลเก็บในชีต “ผู้ใช้งาน”</p>
+      <button class="btn btn-outline btn-sm" id="u-invite">${U.icon('link')}คัดลอกลิงก์เข้าใช้งาน</button></div><div id="u-list" class="muted">กำลังโหลด…</div>`;
+    U.$('#u-invite').onclick = () => navigator.clipboard.writeText(Conn.inviteLink()).then(() => U.toast('คัดลอกลิงก์แล้ว'));
+    const load = async () => {
+      const el = U.$('#u-list'); if (!el) return;
+      try {
+        const { users } = await Sync.call('listUsers');
+        users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0) || a.firstName.localeCompare(b.firstName));
+        const st2 = { active: ['ใช้งาน', 'paid'], pending: ['รออนุมัติ', 'pending'], disabled: ['ระงับ', 'void'] };
+        el.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง</th><th>ติดต่อ</th><th>วันเกิด</th><th>สิทธิ์</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th></th></tr></thead><tbody>
+          ${users.map((u) => { const me = u.email === Auth.user.email; const [sl, sc] = st2[u.status] || st2.pending; return `<tr>
+            <td><b>${U.esc(Auth.fullName(u))}</b>${me ? ' <span class="tag">คุณ</span>' : ''}<div class="muted small">ลงทะเบียน ${U.esc(String(u.createdAt).slice(0, 10))} · ${u.authType.includes('google') ? 'Google' : 'รหัสผ่าน'}</div></td>
+            <td>${U.esc(u.position)}</td><td class="small">${U.esc(u.email)}<br>${U.esc(u.phone)}</td><td class="small">${u.birthDate ? U.thDate(u.birthDate) : '-'}</td>
+            <td><select data-role="${U.esc(u.email)}" class="input-sm" style="width:auto;min-width:130px">${U.opt('staff', 'พนักงาน', u.role)}${U.opt('admin', 'ผู้ดูแลระบบ', u.role)}</select></td>
+            <td><span class="chip chip-${sc}">${sl}</span></td><td class="small">${U.esc(u.lastLogin || '-')}</td>
+            <td class="actions">${u.status === 'pending' ? `<button class="btn btn-xs btn-success" data-st="active" data-em="${U.esc(u.email)}">${U.icon('check')}อนุมัติ</button>` : ''}
+              ${u.status === 'active' && !me ? `<button class="btn btn-xs btn-outline" data-st="disabled" data-em="${U.esc(u.email)}">${U.icon('ban')}ระงับ</button>` : ''}
+              ${u.status === 'disabled' ? `<button class="btn btn-xs btn-outline" data-st="active" data-em="${U.esc(u.email)}">${U.icon('rotate-ccw')}เปิดใช้</button>` : ''}
+              <button class="icon-btn" title="รีเซ็ตรหัสผ่าน" data-pw="${U.esc(u.email)}">${U.icon('key-round')}</button>
+              ${me ? '' : `<button class="icon-btn danger" title="ลบผู้ใช้" data-del="${U.esc(u.email)}">${U.icon('trash-2')}</button>`}</td></tr>`; }).join('')}
+          </tbody></table></div>`;
+        U.refreshIcons();
+        const act = async (fn, msg) => { try { await fn(); U.toast(msg); load(); } catch (e) { U.toast(e.message, 'error'); load(); } };
+        el.querySelectorAll('[data-st]').forEach((b) => b.onclick = () => act(() => Sync.call('updateUser', { email: b.dataset.em, status: b.dataset.st }), b.dataset.st === 'active' ? 'อนุมัติ/เปิดใช้งานแล้ว' : 'ระงับผู้ใช้แล้ว'));
+        el.querySelectorAll('[data-role]').forEach((sel) => sel.onchange = () => act(() => Sync.call('updateUser', { email: sel.dataset.role, role: sel.value }), 'เปลี่ยนสิทธิ์แล้ว'));
+        el.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { if (await U.confirm(`ลบผู้ใช้ ${U.esc(b.dataset.del)}? (ประวัติการใช้งานยังเก็บไว้)`, { danger: true, okText: 'ลบ' })) act(() => Sync.call('deleteUser', { email: b.dataset.del }), 'ลบผู้ใช้แล้ว'); });
+        el.querySelectorAll('[data-pw]').forEach((b) => b.onclick = () => U.modal({
+          title: 'รีเซ็ตรหัสผ่าน', size: 'sm',
+          body: `<p class="small muted mt-0">${U.esc(b.dataset.pw)}</p><div class="field"><label>รหัสผ่านใหม่ (8 ตัวขึ้นไป)</label><input type="text" id="np" value="${Math.random().toString(36).slice(2, 6)}${Math.random().toString(36).slice(2, 8).toUpperCase()}"></div><p class="small muted">แจ้งรหัสนี้ให้พนักงาน แล้วให้เปลี่ยนเองที่ “โปรไฟล์ของฉัน”</p>`,
+          footer: '<button class="btn btn-ghost" data-close>ยกเลิก</button><button class="btn btn-primary" data-ok>รีเซ็ต</button>',
+          onOpen: (root, close) => { root.querySelector('[data-ok]').onclick = () => { const np = root.querySelector('#np').value.trim(); close(); act(() => Sync.call('resetPassword', { email: b.dataset.pw, newPassword: np }), 'รีเซ็ตรหัสผ่านแล้ว'); }; },
+        }));
+      } catch (e) { el.innerHTML = `<div class="alert alert-err">${U.icon('alert-circle')}<div>${U.esc(e.message)}</div></div>`; U.refreshIcons(); }
+    };
+    load();
+  } else if (tab === 'activity') {
+    body.style.maxWidth = 'none';
+    body.innerHTML = `<div class="toolbar" style="padding:0 0 12px;border:0"><div class="search">${U.icon('search')}<input id="a-q" placeholder="ค้นหาผู้ใช้ การกระทำ หรือเลขที่เอกสาร…"></div><div class="flex-1"></div>
+      <button class="btn btn-outline btn-sm" id="a-csv">${U.icon('download')}CSV</button><button class="btn btn-outline btn-sm" id="a-reload">${U.icon('refresh-cw')}รีเฟรช</button></div><div id="a-list" class="muted">กำลังโหลด…</div>`;
+    let rows = [];
+    const draw = () => {
+      const q = U.$('#a-q').value.toLowerCase();
+      const list = rows.filter((r) => !q || `${r.email} ${r.name} ${r.action} ${r.detail}`.toLowerCase().includes(q));
+      U.$('#a-list').innerHTML = list.length ? `<div class="table-wrap"><table class="tbl compact"><thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>การกระทำ</th><th>รายละเอียด</th></tr></thead><tbody>
+        ${list.map((r) => `<tr><td class="nowrap small">${new Date(r.at).toLocaleString('th-TH')}</td><td><b>${U.esc(r.name || '-')}</b><div class="muted small">${U.esc(r.email)}</div></td><td><span class="tag">${U.esc(r.action)}</span></td><td class="small">${U.esc(r.detail)}</td></tr>`).join('')}
+        </tbody></table></div>` : `<div class="empty">${U.icon('history')}<h4>ไม่มีประวัติ</h4></div>`;
+      U.refreshIcons();
+    };
+    const load = async () => { try { rows = (await Sync.call('activity', { limit: 500 })).rows; draw(); } catch (e) { U.$('#a-list').textContent = e.message; } };
+    U.$('#a-q').oninput = U.debounce(draw, 200);
+    U.$('#a-reload').onclick = load;
+    U.$('#a-csv').onclick = () => U.downloadCSV(`activity-${U.today()}.csv`, [['เวลา', 'อีเมล', 'ชื่อ', 'การกระทำ', 'รายละเอียด'], ...rows.map((r) => [r.at, r.email, r.name, r.action, r.detail])]);
+    load();
   } else if (tab === 'data') {
     const size = (JSON.stringify(s).length / 1024).toFixed(1);
     body.innerHTML = `
@@ -233,14 +286,15 @@ Pages.settings = (view, tab = 'company') => {
         <div class="card kpi"><div><div class="kpi-label">รายชื่อ / สินค้า</div><div class="kpi-value">${s.contacts.length} / ${s.products.length}</div></div></div>
         <div class="card kpi"><div><div class="kpi-label">ขนาดข้อมูล</div><div class="kpi-value">${size} KB</div></div></div>
       </div>
-      <h4 class="mt-3">สำรองข้อมูลลงเครื่อง</h4><p class="muted small">ดาวน์โหลดข้อมูลทั้งหมดเป็นไฟล์ JSON เก็บไว้ หรือย้ายไปใช้เครื่องอื่น</p>
+      <div class="alert alert-warn mt-2">${U.icon('alert-triangle')}<div>ข้อมูลใช้ร่วมกันทั้งบริษัท — การนำเข้า โหลดข้อมูลตัวอย่าง หรือล้างข้อมูล จะ<b>แทนที่ข้อมูลของทุกคนบนเซิร์ฟเวอร์</b> (ระบบสำรองข้อมูลเดิมไว้ให้ก่อนอัตโนมัติ)</div></div>
+      <h4 class="mt-3">สำรองข้อมูลลงเครื่อง</h4><p class="muted small">ดาวน์โหลดข้อมูลทั้งหมดเป็นไฟล์ JSON</p>
       <div class="btn-group"><button class="btn btn-outline" id="d-export">${U.icon('download')}ดาวน์โหลดไฟล์สำรอง (.json)</button>
         <label class="btn btn-outline">${U.icon('upload')}นำเข้าไฟล์สำรอง<input type="file" id="d-import" accept=".json,application/json" hidden></label></div>
-      <h4 class="mt-3">ข้อมูลตัวอย่าง</h4><p class="muted small">โหลดข้อมูลตัวอย่างเพื่อทดลองใช้งาน (ข้อมูลเดิมจะถูกแทนที่)</p>
+      <h4 class="mt-3">ข้อมูลตัวอย่าง</h4><p class="muted small">สำหรับทดลองระบบเท่านั้น</p>
       <button class="btn btn-soft" onclick="Demo.confirmLoad()">${U.icon('sparkles')}โหลดข้อมูลตัวอย่าง</button>
-      <h4 class="mt-3" style="color:var(--danger)">ล้างข้อมูลทั้งหมด</h4><p class="muted small">ลบข้อมูลทั้งหมดในเครื่องนี้ (ข้อมูลบน Google จะไม่ถูกลบ)</p>
+      <h4 class="mt-3" style="color:var(--danger)">ล้างข้อมูลทั้งหมด</h4><p class="muted small">ลบเอกสาร รายชื่อ สินค้า และบัญชีทั้งหมด เพื่อเริ่มใช้งานจริง (ผู้ใช้งานและประวัติการใช้งานยังอยู่)</p>
       <button class="btn btn-danger" id="d-reset">${U.icon('trash-2')}ล้างข้อมูล</button>`;
-    U.$('#d-export').onclick = () => U.downloadFile(`accflow-backup-${U.today()}.json`, JSON.stringify(s, null, 1), 'application/json');
+    U.$('#d-export').onclick = () => U.downloadFile(`voltgrid-backup-${U.today()}.json`, JSON.stringify(s, null, 1), 'application/json');
     U.$('#d-import').onchange = (e) => {
       const f = e.target.files[0]; if (!f) return;
       const r = new FileReader();
@@ -248,17 +302,16 @@ Pages.settings = (view, tab = 'company') => {
         try {
           const d = JSON.parse(r.result);
           if (!d.documents || !d.accounts) throw new Error('ไฟล์ไม่ถูกต้อง');
-          if (!(await U.confirm(`นำเข้าข้อมูลจากไฟล์ (${d.documents.length} เอกสาร)? ข้อมูลปัจจุบันจะถูกแทนที่`, { danger: true }))) return;
-          Store.replace(d); Store.save(); U.toast('นำเข้าข้อมูลแล้ว'); App.go('#/dashboard');
-        } catch (er) { U.toast('ไฟล์ไม่ถูกต้อง: ' + er.message, 'error'); }
+          if (!(await U.confirm(`นำเข้าข้อมูลจากไฟล์ (${d.documents.length} เอกสาร)? ข้อมูลของทุกคนจะถูกแทนที่`, { danger: true }))) return;
+          await Sync.overwrite(d, 'นำเข้าข้อมูลจากไฟล์'); U.toast('นำเข้าข้อมูลแล้ว'); App.go('#/dashboard');
+        } catch (er) { U.toast(er.message, 'error'); }
       };
       r.readAsText(f);
     };
     U.$('#d-reset').onclick = async () => {
-      if (!(await U.confirm('ล้างข้อมูลทั้งหมดในเครื่องนี้? ไม่สามารถย้อนกลับได้ (แนะนำให้ดาวน์โหลดไฟล์สำรองก่อน)', { danger: true, okText: 'ล้างข้อมูล' }))) return;
-      const keep = { gasUrl: st.gasUrl, gasToken: st.gasToken };
-      const d = Store.defaults(); d.settings = { ...d.settings, ...keep, autoSync: false };
-      Store.replace(d); Store.save({ sync: false }); U.toast('ล้างข้อมูลแล้ว', 'info'); App.go('#/start');
+      if (!(await U.confirm('ล้างข้อมูลบัญชีทั้งหมดของบริษัท? ทุกคนจะเห็นข้อมูลว่างเปล่า (ระบบสำรองข้อมูลเดิมไว้ใน Google Drive ก่อน)', { danger: true, okText: 'ล้างข้อมูล' }))) return;
+      const d = Store.defaults(); d.company = { ...d.company, ...{ name: s.company.name, nameEn: s.company.nameEn, taxId: s.company.taxId, branch: s.company.branch, address: s.company.address, phone: s.company.phone, email: s.company.email, logo: s.company.logo, signName: s.company.signName, signImage: s.company.signImage, stampImage: s.company.stampImage } };
+      try { await Sync.overwrite(d, 'ล้างข้อมูลทั้งหมด'); U.toast('ล้างข้อมูลแล้ว (ข้อมูลกิจการ โลโก้ และลายเซ็นยังอยู่)', 'info'); App.go('#/start'); } catch (er) { U.toast(er.message, 'error'); }
     };
   }
 };

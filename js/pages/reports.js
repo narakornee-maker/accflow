@@ -104,7 +104,7 @@ Pages.reports = (view, tab = 'pl', query = {}) => {
     const byC = U.groupBy(a.rows, (r) => r.doc.contactId);
     csvRows.push(['คู่ค้า', 'เอกสาร', 'วันที่', 'ครบกำหนด', 'เกินกำหนด(วัน)', ...labels, 'รวม']);
     body.innerHTML = `${head(tab === 'ar' ? 'รายงานลูกหนี้คงค้างแยกตามอายุหนี้' : 'รายงานเจ้าหนี้คงค้างแยกตามอายุหนี้', asOfTxt)}
-      <div class="grid g5" style="padding:0 20px">${labels.map((l, i) => `<div class="card kpi" style="padding:12px 14px"><div><div class="kpi-label">${l}</div><div class="kpi-value" style="font-size:18px;color:${['#2563eb', '#d97706', '#ea580c', '#dc2626', '#991b1b'][i]}">${U.money(a.buckets[i])}</div></div></div>`).join('')}</div>
+      <div class="grid g5" style="padding:0 20px">${labels.map((l, i) => `<div class="card kpi" style="padding:12px 14px"><div><div class="kpi-label">${l}</div><div class="kpi-value" style="font-size:18px;color:${['#2E7D32', '#d97706', '#FF8F00', '#dc2626', '#991b1b'][i]}">${U.money(a.buckets[i])}</div></div></div>`).join('')}</div>
       <div class="table-wrap mt-2"><table class="tbl compact"><thead><tr><th>${tab === 'ar' ? 'ลูกค้า' : 'ผู้ขาย'} / เอกสาร</th><th>วันที่</th><th>ครบกำหนด</th><th class="num">เกินกำหนด</th>${labels.map((l) => `<th class="num">${l}</th>`).join('')}<th class="num">รวม</th></tr></thead><tbody>
       ${Object.entries(byC).map(([cid, rows]) => { const c = Store.get('contacts', cid) || {}; return `<tr class="group"><td colspan="4">${U.esc(c.name || '-')}</td>${[0, 1, 2, 3, 4].map((b) => `<td class="num">${U.money(U.sum(rows.filter((r) => r.bucket === b), (r) => r.total))}</td>`).join('')}<td class="num">${U.money(U.sum(rows, (r) => r.total))}</td></tr>
         ${rows.map((r) => { csvRows.push([c.name, r.doc.no, r.doc.date, r.due, Math.max(0, r.days), ...[0, 1, 2, 3, 4].map((b) => (r.bucket === b ? r.total : '')), r.total]);
@@ -136,7 +136,7 @@ Pages.reports = (view, tab = 'pl', query = {}) => {
           </tbody></table></div>
       </div><div style="padding:0 20px 20px"><div class="chart-box"><canvas id="ch-sales"></canvas></div></div>`;
     if (window.Chart && custRows.length) {
-      App.charts.push(new Chart(U.$('#ch-sales'), { type: 'bar', data: { labels: custRows.slice(0, 10).map(([id]) => ((Store.get('contacts', id) || {}).name || '-').slice(0, 24)), datasets: [{ label: 'ยอดขาย', data: custRows.slice(0, 10).map(([, r]) => r.base), backgroundColor: '#3b82f6', borderRadius: 6 }] },
+      App.charts.push(new Chart(U.$('#ch-sales'), { type: 'bar', data: { labels: custRows.slice(0, 10).map(([id]) => ((Store.get('contacts', id) || {}).name || '-').slice(0, 24)), datasets: [{ label: 'ยอดขาย', data: custRows.slice(0, 10).map(([, r]) => r.base), backgroundColor: '#388E3C', borderRadius: 6 }] },
         options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } } }));
     }
   } else if (tab === 'stock') {

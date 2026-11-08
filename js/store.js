@@ -59,6 +59,9 @@ const DOC_TYPES = {
   EX: { label: 'บันทึกค่าใช้จ่าย', short: 'ค่าใช้จ่าย', group: 'purchase', party: 'supplier', icon: 'wallet', prefix: 'EX' },
 };
 
+const COMPANY_NAME = 'VoltGrid Energy & Solutions Co., Ltd.';
+const COLLECTIONS = ['contacts', 'products', 'documents', 'journals', 'stockAdjustments', 'employees', 'payrolls', 'assets'];
+
 const Store = {
   KEY: 'accflow_state_v1',
   state: null,
@@ -66,57 +69,63 @@ const Store = {
 
   defaults() {
     return {
-      meta: { version: 1, createdAt: new Date().toISOString(), updatedAt: null, syncedAt: null },
+      meta: { version: 2, createdAt: new Date().toISOString(), updatedAt: null, syncedAt: null, dirty: false, brand: 'voltgrid' },
       company: {
-        name: 'บริษัทของฉัน จำกัด', nameEn: '', taxId: '', branch: 'สำนักงานใหญ่', address: '', phone: '', email: '', website: '',
+        name: COMPANY_NAME, nameEn: '', taxId: '', branch: 'สำนักงานใหญ่', address: '', phone: '', email: '', website: '',
         businessType: 'service', vatRegistered: true, vatRate: 7, vatPoint: 'payment', fyStartMonth: 1, logo: '',
         defaultCreditDays: 30, signName: '',
       },
       settings: {
-        gasUrl: '', gasToken: '', autoSync: true, autoBackupOnSync: false,
+        autoSync: true,
         payroll: { ssoRate: 5, ssoMin: 1650, ssoMax: 17500, personalAllowance: 60000, expenseRate: 50, expenseMax: 100000 },
       },
       counters: {},
       accounts: DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
-      contacts: [],
-      products: [],
-      documents: [],
-      journals: [],
-      stockAdjustments: [],
-      employees: [],
-      payrolls: [],
-      assets: [],
+      contacts: [], products: [], documents: [], journals: [], stockAdjustments: [], employees: [], payrolls: [], assets: [],
+      deleted: [],
     };
+  },
+
+  normalize(s) {
+    const d = this.defaults();
+    s.company = { ...d.company, ...s.company };
+    s.settings = { ...d.settings, ...s.settings, payroll: { ...d.settings.payroll, ...(s.settings || {}).payroll } };
+    s.meta = { ...d.meta, ...s.meta };
+    for (const k of Object.keys(d)) if (s[k] === undefined) s[k] = d[k];
+    for (const a of DEFAULT_ACCOUNTS) if (!s.accounts.find((x) => x.code === a.code)) s.accounts.push({ ...a });
+    // เปลี่ยนชื่อบริษัทเป็น VoltGrid (ครั้งเดียว) ถ้ายังเป็นชื่อเริ่มต้น/ชื่อตัวอย่าง
+    if (s.meta.brand !== 'voltgrid') {
+      if (['บริษัทของฉัน จำกัด', 'บริษัท ตัวอย่าง เอ็นจิเนียริ่ง จำกัด', ''].includes(s.company.name)) s.company.name = COMPANY_NAME;
+      s.meta.brand = 'voltgrid';
+    }
+    return s;
   },
 
   load() {
     let s = null;
     try { s = JSON.parse(localStorage.getItem(this.KEY)); } catch (e) { s = null; }
-    const d = this.defaults();
-    if (!s) { this.state = d; return false; }
-    // shallow-merge defaults for forward compatibility
-    s.company = { ...d.company, ...s.company };
-    s.settings = { ...d.settings, ...s.settings, payroll: { ...d.settings.payroll, ...(s.settings || {}).payroll } };
-    s.meta = { ...d.meta, ...s.meta };
-    for (const k of Object.keys(d)) if (s[k] === undefined) s[k] = d[k];
-    // ensure system accounts exist
-    for (const a of DEFAULT_ACCOUNTS) if (!s.accounts.find((x) => x.code === a.code)) s.accounts.push({ ...a });
-    this.state = s;
+    if (!s) { this.state = this.defaults(); return false; }
+    this.state = this.normalize(s);
     return true;
+  },
+
+  persist() {
+    try { localStorage.setItem(this.KEY, JSON.stringify(this.state)); }
+    catch (e) { U.toast('บันทึกลงเครื่องไม่สำเร็จ: พื้นที่เต็ม', 'error'); }
   },
 
   save({ silent = false, sync = true } = {}) {
     this.state.meta.updatedAt = new Date().toISOString();
-    try { localStorage.setItem(this.KEY, JSON.stringify(this.state)); }
-    catch (e) { U.toast('บันทึกลงเครื่องไม่สำเร็จ: พื้นที่เต็ม', 'error'); }
+    if (sync) this.state.meta.dirty = true;
+    this.persist();
     if (typeof ACC !== 'undefined') ACC.invalidate();
     if (sync) Sync.schedule();
     if (!silent) this.listeners.forEach((f) => f());
   },
 
   replace(newState) {
-    localStorage.setItem(this.KEY, JSON.stringify(newState));
-    this.load();
+    this.state = this.normalize(JSON.parse(JSON.stringify(newState)));
+    this.persist();
     if (typeof ACC !== 'undefined') ACC.invalidate();
   },
 
@@ -125,29 +134,69 @@ const Store = {
   upsert(col, obj) {
     if (!obj.id) obj.id = U.uid();
     const i = this.state[col].findIndex((x) => x.id === obj.id);
+    const prev = i >= 0 ? this.state[col][i] : null;
     obj.updatedAt = new Date().toISOString();
-    if (i >= 0) this.state[col][i] = obj; else { obj.createdAt = obj.updatedAt; this.state[col].push(obj); }
+    const who = typeof Auth !== 'undefined' && Auth.user ? Auth.user.email : '';
+    if (who) obj.updatedBy = who;
+    if (i >= 0) this.state[col][i] = obj; else { obj.createdAt = obj.updatedAt; if (who) obj.createdBy = who; this.state[col].push(obj); }
+    Activity.record(col, obj, prev);
     this.save();
     return obj;
   },
   remove(col, id) {
+    const prev = this.get(col, id);
     this.state[col] = this.state[col].filter((x) => x.id !== id);
+    (this.state.deleted = this.state.deleted || []).push({ col, id, at: new Date().toISOString() });
+    if (this.state.deleted.length > 3000) this.state.deleted = this.state.deleted.slice(-3000);
+    if (prev) Activity.add('ลบ', Activity.label(col, prev));
     this.save();
   },
 
   /** เลขที่เอกสาร: PREFIX + ปี พ.ศ. + เดือน + ลำดับ 4 หลัก เช่น QT2569110001 */
-  nextNo(type, date = U.today(), peek = false) {
-    const prefix = (this.state.settings.prefixes || {})[type] || (DOC_TYPES[type] || {}).prefix || type;
+  nextNo(type, date = U.today(), peek = false, state = this.state) {
+    const prefix = (state.settings.prefixes || {})[type] || (DOC_TYPES[type] || {}).prefix || type;
     const [y, m] = date.split('-');
     const key = `${prefix}${+y + 543}${m}`;
-    const n = (this.state.counters[key] || 0) + 1;
-    if (!peek) this.state.counters[key] = n;
+    const n = (state.counters[key] || 0) + 1;
+    if (!peek) state.counters[key] = n;
     return `${key}${U.pad(n, 4)}`;
   },
 
   nextCode(col, prefix) {
     const nums = this.state[col].map((x) => +(String(x.code || '').replace(/\D/g, '')) || 0);
     return `${prefix}${U.pad((nums.length ? Math.max(...nums) : 0) + 1, 4)}`;
+  },
+
+  /**
+   * รวมข้อมูลในเครื่องกับข้อมูลบนเซิร์ฟเวอร์ระดับรายการ (ใช้เมื่อหลายคนบันทึกพร้อมกัน)
+   * - รายการเดียวกัน: เลือกฉบับที่แก้ไขล่าสุด (updatedAt)
+   * - รายการที่ถูกลบ (tombstone) จะไม่กลับมา
+   * - เลขที่เอกสารซ้ำ: ออกเลขใหม่ให้ฉบับที่สร้างทีหลัง
+   */
+  merge(local, remote) {
+    const out = JSON.parse(JSON.stringify(remote));
+    const tomb = {};
+    [...(remote.deleted || []), ...(local.deleted || [])].forEach((t) => { const k = `${t.col}|${t.id}`; if (!tomb[k] || tomb[k] < t.at) tomb[k] = t.at; });
+    out.deleted = Object.entries(tomb).map(([k, at]) => { const [col, id] = k.split('|'); return { col, id, at }; }).sort((a, b) => (a.at < b.at ? -1 : 1)).slice(-3000);
+    for (const col of COLLECTIONS) {
+      const map = new Map((remote[col] || []).map((x) => [x.id, x]));
+      for (const it of local[col] || []) { const r = map.get(it.id); if (!r || (it.updatedAt || '') > (r.updatedAt || '')) map.set(it.id, it); }
+      out[col] = [...map.values()].filter((x) => { const t = tomb[`${col}|${x.id}`]; return !t || t < (x.updatedAt || ''); });
+    }
+    const accs = new Map((remote.accounts || []).map((a) => [a.code, a]));
+    (local.accounts || []).forEach((a) => accs.set(a.code, a));
+    out.accounts = [...accs.values()];
+    out.counters = { ...(remote.counters || {}) };
+    Object.entries(local.counters || {}).forEach(([k, v]) => { out.counters[k] = Math.max(out.counters[k] || 0, v); });
+    if ((local.meta.updatedAt || '') > (remote.meta && remote.meta.updatedAt || '')) { out.company = local.company; out.settings = local.settings; }
+    const seen = {};
+    [...out.documents].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')).forEach((d) => {
+      const k = `${d.type}|${d.no}`;
+      if (d.no && seen[k]) { d.no = this.nextNo(d.type, d.date, false, out); d.updatedAt = new Date().toISOString(); }
+      seen[`${d.type}|${d.no}`] = true;
+    });
+    out.meta = { ...(remote.meta || {}), updatedAt: new Date().toISOString(), dirty: true };
+    return out;
   },
 
   account(code) { return this.state.accounts.find((a) => a.code === code); },
@@ -157,21 +206,70 @@ const Store = {
 };
 
 /* ============================================================
- * Google Apps Script sync — เก็บข้อมูลใน Google Drive / Sheets
+ * Activity log — ส่งไปบันทึกในชีต "ประวัติการใช้งาน" พร้อมการซิงก์
+ * ============================================================ */
+const Activity = {
+  KEY: 'accflow_activity',
+  COL: { documents: '', contacts: 'รายชื่อ', products: 'สินค้า', journals: 'บันทึกบัญชี', stockAdjustments: 'ปรับสต็อก', employees: 'พนักงาน', payrolls: 'เงินเดือน', assets: 'สินทรัพย์' },
+  queue() { try { return JSON.parse(localStorage.getItem(this.KEY)) || []; } catch (e) { return []; } },
+  label(col, o) {
+    if (col === 'documents') return `${(DOC_TYPES[o.type] || {}).short || o.type} ${o.no || '(ร่าง)'}`;
+    return `${this.COL[col] || col} ${o.no || o.code || ''} ${o.name || ''}`.replace(/\s+/g, ' ').trim();
+  },
+  add(action, detail) {
+    if (typeof Auth === 'undefined' || !Auth.user) return;
+    const q = this.queue(); q.push({ at: new Date().toISOString(), action, detail });
+    localStorage.setItem(this.KEY, JSON.stringify(q.slice(-500)));
+  },
+  record(col, obj, prev) {
+    let action = prev ? 'แก้ไข' : 'สร้าง';
+    if (prev && prev.status !== obj.status) action = { approved: 'อนุมัติ', void: 'ยกเลิกเอกสาร', draft: 'ยกเลิกอนุมัติ', pending: 'ส่งรออนุมัติ' }[obj.status] || action;
+    else if (!prev && obj.status === 'approved') action = 'สร้างและอนุมัติ';
+    if (col === 'documents' && prev && prev.payment && obj.payment && !prev.payment.paid && obj.payment.paid) action = 'บันทึกจ่ายชำระ';
+    let detail = this.label(col, obj);
+    if (col === 'documents') { try { detail += ` · ${U.money(ACC.calcDoc(obj).total)} บาท`; } catch (e) { /* noop */ } }
+    this.add(action, detail);
+  },
+  take() { const q = this.queue(); return q; },
+  clear(n) { const q = this.queue(); localStorage.setItem(this.KEY, JSON.stringify(q.slice(n))); },
+};
+
+/* ============================================================
+ * Connection config — URL ของ Apps Script (ไม่ใช่ข้อมูลลับ)
+ * ============================================================ */
+const Conn = {
+  KEY: 'accflow_conn',
+  get() {
+    let c = {};
+    try { c = JSON.parse(localStorage.getItem(this.KEY)) || {}; } catch (e) { c = {}; }
+    const cfg = window.ACCFLOW_CONFIG || {};
+    if (!c.gasUrl && cfg.gasUrl) c.gasUrl = cfg.gasUrl;
+    if (!c.gasUrl) { // ย้ายค่าจากเวอร์ชันเก่า
+      try { const s = JSON.parse(localStorage.getItem(Store.KEY)); if (s && s.settings && s.settings.gasUrl) c.gasUrl = s.settings.gasUrl; } catch (e) { /* noop */ }
+    }
+    return c;
+  },
+  set(patch) { const c = { ...this.get(), ...patch }; localStorage.setItem(this.KEY, JSON.stringify(c)); return c; },
+  inviteLink() { const u = this.get().gasUrl; return `${location.origin}${location.pathname}?setup=${encodeURIComponent(btoa(JSON.stringify({ u })))}`; },
+};
+
+/* ============================================================
+ * Google Apps Script sync
  * ============================================================ */
 const Sync = {
-  status: 'off', // off | idle | syncing | error
+  status: 'off',
   lastError: '',
   timer: null,
+  busy: false,
 
-  enabled() { const s = Store.state.settings; return !!(s.gasUrl && s.gasToken); },
+  enabled() { return !!(Conn.get().gasUrl && typeof Auth !== 'undefined' && Auth.token); },
 
   setStatus(st, err = '') {
     this.status = st; this.lastError = err;
     const el = document.getElementById('sync-status');
     if (!el) return;
     const map = {
-      off: ['cloud-off', 'ยังไม่เชื่อม Google', 'muted'],
+      off: ['cloud-off', 'ออฟไลน์', 'muted'],
       idle: ['cloud', 'ซิงก์แล้ว', 'ok'],
       pending: ['cloud-upload', 'รอซิงก์…', 'warn'],
       syncing: ['refresh-cw', 'กำลังซิงก์…', 'warn spin'],
@@ -184,68 +282,115 @@ const Sync = {
     U.refreshIcons();
   },
 
-  async call(action, payload = {}) {
-    const { gasUrl, gasToken } = Store.state.settings;
-    if (!gasUrl) throw new Error('ยังไม่ได้ตั้งค่า Google Apps Script URL');
-    // text/plain เพื่อหลีกเลี่ยง CORS preflight ของ Apps Script
-    const res = await fetch(gasUrl, {
-      method: 'POST', redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, token: gasToken, ...payload }),
-    });
+  /** เรียก API (ไม่ต้องเข้าสู่ระบบสำหรับ config/login/register) */
+  async call(action, payload = {}, { url } = {}) {
+    const gasUrl = url || Conn.get().gasUrl;
+    if (!gasUrl) throw new Error('ยังไม่ได้ตั้งค่าการเชื่อมต่อเซิร์ฟเวอร์');
+    let res;
+    try {
+      res = await fetch(gasUrl, {
+        method: 'POST', redirect: 'follow',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, session: (typeof Auth !== 'undefined' && Auth.token) || undefined, ...payload }),
+      });
+    } catch (e) {
+      throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ต หรือการ Deploy ของ Apps Script (ผู้ที่มีสิทธิ์เข้าถึง: ทุกคน)');
+    }
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const j = await res.json();
-    if (!j.ok) throw new Error(j.error || 'เกิดข้อผิดพลาด');
+    let j;
+    try { j = await res.json(); } catch (e) { throw new Error('เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง — ตรวจสอบ URL ของ Apps Script'); }
+    if (j.code === 'AUTH' && typeof Auth !== 'undefined') { Auth.expired(); throw new Error(j.error); }
+    if (!j.ok && !j.conflict) { const e = new Error(j.error || 'เกิดข้อผิดพลาด'); e.code = j.code; throw e; }
     return j;
   },
 
   schedule() {
-    if (!this.enabled() || !Store.state.settings.autoSync) { this.setStatus(this.enabled() ? 'pending' : 'off'); return; }
+    if (!this.enabled()) { this.setStatus('off'); return; }
+    if (!Store.state.settings.autoSync) { this.setStatus('pending'); return; }
     this.setStatus('pending');
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.push().catch(() => {}), 2500);
   },
 
-  async push({ sheets = false } = {}) {
+  /** ส่งข้อมูลขึ้น (ถ้ามีคนอื่นบันทึกก่อน จะรวมข้อมูลแล้วส่งใหม่อัตโนมัติ) */
+  async push({ sheets = false, force = false } = {}) {
     if (!this.enabled()) return;
+    if (this.busy) { clearTimeout(this.timer); this.timer = setTimeout(() => this.push({ sheets, force }).catch(() => {}), 1500); return; }
+    this.busy = true;
     this.setStatus('syncing');
     try {
-      const data = Store.state;
-      const payload = { data };
-      if (sheets) payload.tables = ACC.exportTables();
-      const r = await this.call('save', payload);
-      Store.state.meta.syncedAt = r.savedAt || new Date().toISOString();
-      localStorage.setItem(Store.KEY, JSON.stringify(Store.state));
-      this.setStatus('idle');
-      return r;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const activity = Activity.take();
+        const payload = { data: Store.state, baseVersion: Store.state.meta.syncedAt || '', activity, force };
+        if (sheets) payload.tables = ACC.exportTables();
+        const r = await this.call('save', payload);
+        if (r.conflict) {
+          Store.replace(Store.merge(Store.state, r.data));
+          Store.state.meta.syncedAt = r.data.meta && r.data.meta.syncedAt;
+          Store.persist();
+          continue;
+        }
+        Activity.clear(activity.length);
+        Store.state.meta.syncedAt = r.savedAt;
+        Store.state.meta.dirty = false;
+        Store.persist();
+        this.setStatus('idle');
+        if (attempt > 0) this.afterRemoteChange('รวมข้อมูลจากผู้ใช้อื่นแล้ว');
+        return r;
+      }
+      throw new Error('มีการบันทึกพร้อมกันหลายครั้ง กรุณาลองใหม่');
     } catch (e) { this.setStatus('error', e.message); throw e; }
+    finally { this.busy = false; }
+  },
+
+  /** แทนที่ข้อมูลทั้งหมดบนเซิร์ฟเวอร์ (ล้างข้อมูล / นำเข้า / ข้อมูลตัวอย่าง) — สำรองข้อมูลเดิมก่อน */
+  async overwrite(data, reason) {
+    if (this.enabled()) { try { await this.call('backup'); } catch (e) { /* ยังไม่มีไฟล์ */ } }
+    clearTimeout(this.timer);
+    Store.replace(data);
+    Store.state.deleted = [];
+    Store.state.meta.dirty = true;
+    Store.persist();
+    Activity.add(reason, '');
+    if (this.enabled()) await this.push({ sheets: true, force: true });
   },
 
   async pull() {
     this.setStatus('syncing');
-    try {
-      const r = await this.call('load');
-      this.setStatus('idle');
-      return r.data || null;
-    } catch (e) { this.setStatus('error', e.message); throw e; }
+    try { const r = await this.call('load'); this.setStatus('idle'); return r.data || null; }
+    catch (e) { this.setStatus('error', e.message); throw e; }
   },
 
-  /** On startup: take remote data if it is newer than local */
-  async init() {
-    if (!this.enabled()) { this.setStatus('off'); return; }
+  /** ดึงข้อมูลล่าสุดของทีม: รวมกับงานที่ยังไม่ได้ซิงก์ในเครื่อง */
+  async refresh({ quiet = true } = {}) {
+    if (!this.enabled() || this.busy) return;
     try {
       const remote = await this.pull();
-      const lu = Store.state.meta.updatedAt || '';
-      const ru = (remote && remote.meta && remote.meta.updatedAt) || '';
-      if (remote && ru > lu) {
-        // keep local connection settings
-        remote.settings = { ...remote.settings, gasUrl: Store.state.settings.gasUrl, gasToken: Store.state.settings.gasToken };
-        Store.replace(remote);
-        U.toast('โหลดข้อมูลล่าสุดจาก Google แล้ว', 'info');
-        App.render();
-      } else if (lu > ru) {
+      if (!remote) { if (Store.state.meta.dirty || Store.state.documents.length) await this.push({ sheets: true }); return; }
+      const rv = (remote.meta && remote.meta.syncedAt) || '';
+      if (rv === Store.state.meta.syncedAt) { if (Store.state.meta.dirty) await this.push(); return; }
+      if (Store.state.meta.dirty) {
+        Store.replace(Store.merge(Store.state, remote));
+        Store.state.meta.syncedAt = rv; Store.persist();
         await this.push();
+      } else {
+        Store.replace(remote);
+        Store.state.meta.dirty = false; Store.persist();
       }
+      this.afterRemoteChange(quiet ? '' : 'อัปเดตข้อมูลล่าสุดแล้ว');
     } catch (e) { /* status already set */ }
+  },
+
+  afterRemoteChange(msg) {
+    const editing = /^#\/(doc|payroll\/run)\//.test(location.hash) || document.querySelector('.modal-overlay');
+    if (editing) { if (msg !== '') U.toast('มีข้อมูลใหม่จากผู้ใช้อื่น — จะแสดงเมื่อออกจากหน้านี้', 'info'); return; }
+    if (typeof App !== 'undefined' && App.ready) App.render();
+    if (msg) U.toast(msg, 'info');
+  },
+
+  startPolling() {
+    clearInterval(this.poll);
+    this.poll = setInterval(() => { if (!document.hidden) this.refresh(); }, 90000);
+    window.addEventListener('focus', U.debounce(() => this.refresh(), 1000));
   },
 };

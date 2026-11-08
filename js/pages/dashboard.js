@@ -117,9 +117,9 @@ Pages.dashboard = (view) => {
       data: {
         labels: months.map(U.thMonthShort),
         datasets: [
-          { type: 'bar', label: 'รายได้', data: rev, backgroundColor: '#3b82f6', borderRadius: 6, maxBarThickness: 22 },
-          { type: 'bar', label: 'ค่าใช้จ่าย', data: exp, backgroundColor: '#fdba74', borderRadius: 6, maxBarThickness: 22 },
-          { type: 'line', label: 'กำไรสุทธิ', data: prof, borderColor: '#16a34a', backgroundColor: '#16a34a', tension: .35, pointRadius: 3 },
+          { type: 'bar', label: 'รายได้', data: rev, backgroundColor: '#388E3C', borderRadius: 6, maxBarThickness: 22 },
+          { type: 'bar', label: 'ค่าใช้จ่าย', data: exp, backgroundColor: '#FFB74D', borderRadius: 6, maxBarThickness: 22 },
+          { type: 'line', label: 'กำไรสุทธิ', data: prof, borderColor: '#FF8F00', backgroundColor: '#FF8F00', tension: .35, pointRadius: 3 },
         ],
       },
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
@@ -128,7 +128,7 @@ Pages.dashboard = (view) => {
     }));
     App.charts.push(new Chart(document.getElementById('ch-aging'), {
       type: 'doughnut',
-      data: { labels: ['ยังไม่ถึงกำหนด', '1–30 วัน', '31–60 วัน', '61–90 วัน', '> 90 วัน'], datasets: [{ data: ar.buckets, backgroundColor: ['#3b82f6', '#fbbf24', '#fb923c', '#f87171', '#b91c1c'], borderWidth: 2 }] },
+      data: { labels: ['ยังไม่ถึงกำหนด', '1–30 วัน', '31–60 วัน', '61–90 วัน', '> 90 วัน'], datasets: [{ data: ar.buckets, backgroundColor: ['#388E3C', '#C8E6C9', '#FFB74D', '#FF8F00', '#c2410c'], borderWidth: 2 }] },
       options: { responsive: true, maintainAspectRatio: false, cutout: '64%', plugins: { legend: { position: 'right', labels: { usePointStyle: true, boxWidth: 8, font: { size: 11.5 } } }, tooltip: { callbacks: { label: (x) => `${x.label}: ${U.money(x.raw)}` } } } },
     }));
   }
@@ -170,10 +170,10 @@ Pages.start = (view) => {
     ['เพิ่มรายชื่อลูกค้า/ผู้ขาย', 'ใช้ในการออกเอกสาร', '#/contacts', Store.state.contacts.length > 0],
     ['เพิ่มสินค้า/บริการ', 'ราคาขาย ราคาทุน หน่วยนับ', '#/products', Store.state.products.length > 0],
     ['บันทึกยอดยกมา', 'ทุน เงินสด ธนาคาร ลูกหนี้ เจ้าหนี้', '#/accounting/journal/new', Store.state.journals.length > 0],
-    ['เชื่อมต่อ Google Drive', 'สำรองข้อมูลอัตโนมัติ', '#/settings/google', Sync.enabled()],
+    ['เชิญพนักงานเข้าใช้งาน', 'ส่งลิงก์ลงทะเบียนและอนุมัติผู้ใช้', '#/settings/users', false],
   ];
   view.innerHTML = `
-    <div class="page-head"><div><h2>เริ่มต้นใช้งาน AccFlow</h2><p>คู่มือการเริ่มต้นใช้งานแอพพลิเคชั่น และทางลัดไปยังทุกโมดูล</p></div></div>
+    <div class="page-head"><div><h2>เริ่มต้นใช้งาน VoltGrid</h2><p>คู่มือการเริ่มต้นใช้งานแอพพลิเคชั่น และทางลัดไปยังทุกโมดูล</p></div></div>
     <div class="grid g21">
       <div class="card hub">${items.map(([h, ic, t, d]) => `<a href="${h}">${U.icon(ic)}<div><h4>${t}</h4><p>${d}</p></div></a>`).join('')}</div>
       <div>
@@ -187,7 +187,7 @@ Pages.start = (view) => {
           <p class="mt-0"><b>ฝั่งขาย:</b></p><div class="flow"><span class="step">ใบเสนอราคา</span><span class="arrow">→</span><span class="step">ใบวางบิล</span><span class="arrow">→</span><span class="step">ใบเสร็จ/ใบกำกับภาษี</span></div>
           <p><b>ฝั่งซื้อ:</b></p><div class="flow"><span class="step">ใบสั่งซื้อ</span><span class="arrow">→</span><span class="step">ใบรับสินค้า</span><span class="arrow">→</span><span class="step">จ่ายชำระ</span></div>
           <p class="muted">เอกสารที่ “อนุมัติ” แล้วจะถูกลงบัญชีคู่ (เดบิต/เครดิต) อัตโนมัติ และแสดงในงบการเงินทันที</p>
-          <button class="btn btn-soft btn-sm mt-1" onclick="Demo.confirmLoad()">${U.icon('sparkles')} โหลดข้อมูลตัวอย่าง</button>
+          ${Auth.isAdmin() ? `<button class="btn btn-soft btn-sm mt-1" onclick="Demo.confirmLoad()">${U.icon('sparkles')} โหลดข้อมูลตัวอย่าง (ผู้ดูแลระบบ)</button>` : ''}
         </div></div>
       </div>
     </div>`;

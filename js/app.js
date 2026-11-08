@@ -22,36 +22,31 @@ const App = {
     { sec: 'บัญชีและรายงาน' },
     { href: '#/accounting', icon: 'book-open', label: 'บัญชี' },
     { href: '#/reports', icon: 'pie-chart', label: 'รีพอร์ต' },
-    { href: '#/settings', icon: 'settings', label: 'ตั้งค่าการใช้งาน' },
+    { href: '#/settings', icon: 'settings', label: 'ตั้งค่าการใช้งาน', admin: true },
   ],
 
   charts: [],
 
+  ready: false,
+
   init() {
-    const had = Store.load();
-    if (!had) Store.save({ silent: true, sync: false });
-    window.addEventListener('hashchange', () => this.render());
+    Store.load();
+    Store.persist();
+    window.addEventListener('hashchange', () => { if (this.ready) this.render(); });
     document.addEventListener('click', (e) => {
       if (!e.target.closest('.dropdown')) document.querySelectorAll('.dropdown.open').forEach((d) => d.classList.remove('open'));
     });
     this.renderNewDocMenu();
-    if (!location.hash) location.hash = had ? '#/dashboard' : '#/start';
-    this.render();
-    Sync.init();
-    if (!had) setTimeout(() => this.welcome(), 400);
+    Auth.start(() => this.boot());
   },
 
-  welcome() {
-    U.modal({
-      title: 'ยินดีต้อนรับสู่ AccFlow 👋', size: 'md',
-      body: `<p>โปรแกรมบัญชีออนไลน์สำหรับ SME — ออกเอกสารขาย/ซื้อ แล้วระบบ <b>ลงบัญชีคู่อัตโนมัติ</b> พร้อมงบการเงินและรายงานภาษี</p>
-        <div class="alert alert-info mt-2">${U.icon('lightbulb')}<div>เริ่มต้นด้วยการ <b>ตั้งค่าข้อมูลกิจการ</b> หรือ <b>โหลดข้อมูลตัวอย่าง</b> เพื่อทดลองใช้งานทุกฟังก์ชัน (ลบทิ้งได้ภายหลัง)</div></div>`,
-      footer: `<button class="btn btn-outline" data-demo>${U.icon('sparkles')} โหลดข้อมูลตัวอย่าง</button><button class="btn btn-primary" data-setup>${U.icon('settings')} ตั้งค่ากิจการ</button>`,
-      onOpen: (root, close) => {
-        root.querySelector('[data-demo]').onclick = () => { Demo.load(); close(); location.hash = '#/dashboard'; this.render(); U.toast('โหลดข้อมูลตัวอย่างแล้ว'); };
-        root.querySelector('[data-setup]').onclick = () => { close(); location.hash = '#/settings'; };
-      },
-    });
+  /** หลังเข้าสู่ระบบ */
+  boot() {
+    this.ready = true;
+    if (!location.hash || location.hash === '#') location.hash = '#/dashboard';
+    this.render();
+    Sync.refresh({ quiet: true });
+    Sync.startPolling();
   },
 
   renderNewDocMenu() {
@@ -77,16 +72,22 @@ const App = {
     };
     document.getElementById('nav').innerHTML = this.NAV.map((n) => {
       if (n.sec) return `<div class="nav-sec">${n.sec}</div>`;
+      if (n.admin && !Auth.isAdmin()) return '';
       const b = n.badge ? n.badge() : 0;
       return `<a href="${n.href}" class="${isActive(n.href) ? 'active' : ''}">${U.icon(n.icon)}<span>${n.label}</span>${b ? `<span class="badge">${b}</span>` : ''}</a>`;
     }).join('');
     const c = Store.state.company;
-    document.getElementById('user-chip').innerHTML = `<div class="avatar">${U.esc((c.name || 'A').replace(/^(บริษัท|ห้างหุ้นส่วน(จำกัด|สามัญ)?|หจก\.?)\s*/, '').slice(0, 1))}</div><span>${U.esc(c.name)}</span>`;
+    const u = Auth.user || {};
+    document.getElementById('user-chip').innerHTML = `<button class="user-btn" onclick="App.toggleDropdown('user-dd', event)"><div class="avatar">${U.esc((u.firstName || u.email || '?').slice(0, 1))}</div><span class="user-txt"><b>${U.esc(Auth.fullName() || 'ผู้ใช้')}</b><small>${U.esc(u.position || '')}</small></span>${U.icon('chevron-down')}</button>
+      <div class="dropdown-menu"><div class="lbl">${U.esc(u.email || '')}</div>
+        <button onclick="Auth.profileModal()">${U.icon('user-round')}โปรไฟล์ของฉัน</button>
+        ${Auth.isAdmin() ? `<a href="#/settings/users">${U.icon('users')}จัดการผู้ใช้งาน</a><a href="#/settings/activity">${U.icon('history')}ประวัติการใช้งาน</a>` : ''}
+        <div class="sep"></div><button onclick="Auth.logout()" style="color:var(--danger)">${U.icon('log-out')}ออกจากระบบ</button></div>`;
     document.getElementById('sidebar-foot').innerHTML = `ปีบัญชี ${U.thMonth(ACC.fiscalStart(U.today()).slice(0, 7))} ·
-      ${c.vatRegistered ? 'จด VAT ' + c.vatRate + '%' : 'ไม่จด VAT'}<br><span style="opacity:.7">ข้อมูลเก็บในเครื่อง${Sync.enabled() ? ' + Google' : ''}</span>`;
+      ${c.vatRegistered ? 'จด VAT ' + c.vatRate + '%' : 'ไม่จด VAT'}<br><span style="opacity:.7">${U.esc(Store.state.company.name)}</span>`;
   },
 
-  setTitle(t) { document.getElementById('page-title').textContent = t; document.title = `${t} — AccFlow`; },
+  setTitle(t) { document.getElementById('page-title').textContent = t; document.title = `${t} — VoltGrid`; },
 
   render() {
     this.charts.forEach((c) => c.destroy()); this.charts = [];
@@ -117,7 +118,7 @@ const App = {
     }
     this.renderNav();
     U.refreshIcons();
-    Sync.setStatus(Sync.status === 'off' && Sync.enabled() ? 'idle' : Sync.status);
+    Sync.setStatus(Sync.status === 'off' && Sync.enabled() ? (Store.state.meta.dirty ? 'pending' : 'idle') : Sync.status);
     window.scrollTo(0, 0);
   },
 
