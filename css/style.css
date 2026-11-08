@@ -313,6 +313,13 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .modal { background: #fff; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); width: 100%; max-height: calc(100vh - 40px); display: flex; flex-direction: column; transform: translateY(10px) scale(.98); transition: transform .2s; }
 .modal-overlay.show .modal { transform: none; }
 .modal-full { max-width: 1400px; }
+.sig-pad-wrap { position: relative; max-width: 620px; border: 2px dashed var(--border-strong); border-radius: 12px; background: #fff; touch-action: none; }
+.sig-pad-wrap canvas { display: block; cursor: crosshair; touch-action: none; }
+.sig-pad-wrap::after { content: ''; position: absolute; left: 24px; right: 24px; bottom: 44px; border-bottom: 1px solid #e2e8f0; pointer-events: none; }
+.sig-pad-hint { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; color: var(--muted-2); pointer-events: none; font-size: 14px; }
+.sig-pad-wrap.used .sig-pad-hint { display: none; }
+.sig-current { display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: repeating-conic-gradient(#f1f5f9 0% 25%, #fff 0% 50%) 50% / 16px 16px; }
+.sig-current img { max-height: 70px; max-width: 260px; }
 .pv { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; }
 .pv-frame iframe { width: 100%; height: calc(100vh - 210px); min-height: 480px; border: 1px solid var(--border); border-radius: 12px; background: #e5e7eb; display: block; }
 .pv-side { max-height: calc(100vh - 210px); overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 12px; }

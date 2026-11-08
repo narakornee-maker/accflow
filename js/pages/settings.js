@@ -2,7 +2,7 @@
  * Settings: กิจการ / ภาษี / เงินเดือน / Google / ข้อมูล
  * ============================================================ */
 Pages.settings = (view, tab = 'company') => {
-  const TABS = [['company', 'building', 'ข้อมูลกิจการ'], ['tax', 'percent', 'ภาษีและเอกสาร'], ['payroll', 'id-card', 'เงินเดือน'], ['google', 'cloud', 'Google Drive / Sheets'], ['data', 'database', 'สำรองและกู้คืนข้อมูล']];
+  const TABS = [['company', 'building', 'ข้อมูลกิจการ'], ['tax', 'percent', 'ภาษีและเอกสาร'], ['payroll', 'id-card', 'เงินเดือน'], ['sign', 'signature', 'ลายเซ็นและตราประทับ'], ['google', 'cloud', 'Google Drive / Sheets'], ['data', 'database', 'สำรองและกู้คืนข้อมูล']];
   if (!TABS.some((t) => t[0] === tab)) tab = 'company';
   App.setTitle('ตั้งค่าการใช้งาน');
   const s = Store.state, c = s.company, st = s.settings;
@@ -65,6 +65,112 @@ Pages.settings = (view, tab = 'company') => {
       <div class="full alert alert-info">${U.icon('info')}<div>อัตราภาษีเงินได้บุคคลธรรมดาแบบขั้นบันได: 0–150,000 ยกเว้น · 5% · 10% · 15% · 20% · 25% · 30% · 35% (เกิน 5 ล้าน)</div></div>
     </div>${saveBtn}`;
     bindSave((f) => { Object.keys(f).forEach((k) => (p[k] = +f[k] || 0)); });
+  } else if (tab === 'sign') {
+    body.innerHTML = `
+      <div class="alert alert-info">${U.icon('info')}<div>ลายเซ็นและตราประทับจะแสดงในช่อง <b>ผู้มีอำนาจลงนาม / ผู้รับเงิน</b> (ฝั่งบริษัท) บนเอกสารที่พิมพ์และ PDF — เปิด/ปิดได้ในหน้าตัวอย่างก่อนพิมพ์</div></div>
+      <h4 class="mt-3">ลายเซ็นผู้มีอำนาจลงนาม</h4>
+      <div class="form-grid mt-1">
+        <div class="field"><label>ชื่อผู้ลงนาม (แสดงใต้ลายเซ็น)</label><input id="sg-name" value="${U.esc(c.signName || '')}" placeholder="เช่น นายสมชาย ใจดี"></div>
+        <div class="field"><label>ลายเซ็นปัจจุบัน</label><div class="sig-current" id="sg-current">${c.signImage ? `<img src="${c.signImage}" alt="ลายเซ็น"><button class="btn btn-xs btn-ghost" id="sg-del" style="color:var(--danger)">${U.icon('trash-2')}ลบ</button>` : '<span class="muted small">ยังไม่มีลายเซ็น</span>'}</div></div>
+      </div>
+      <div class="seg mt-2" id="sg-mode"><button class="active" data-m="draw">${U.icon('pen-line')} วาดลายเซ็น</button><button data-m="upload">${U.icon('upload')} อัปโหลดรูป</button></div>
+      <div id="sg-draw" class="mt-1">
+        <div class="sig-pad-wrap"><canvas id="sg-pad"></canvas><span class="sig-pad-hint">เซ็นชื่อในกรอบนี้ด้วยเมาส์หรือนิ้ว</span></div>
+        <div class="flex wrap mt-1">
+          <span class="small muted">สีหมึก</span>
+          ${[['#111827', 'ดำ'], ['#1d4ed8', 'น้ำเงิน']].map(([v, l], i) => `<button class="btn btn-xs ${i ? 'btn-outline' : 'btn-soft'}" data-ink="${v}"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${v}"></span>${l}</button>`).join('')}
+          <span class="small muted" style="margin-left:8px">ความหนา</span><input type="range" id="sg-width" min="1.5" max="5" step="0.5" value="2.5" style="width:110px">
+          <div class="flex-1"></div>
+          <button class="btn btn-sm btn-ghost" id="sg-clear">${U.icon('eraser')}ล้าง</button>
+          <button class="btn btn-sm btn-primary" id="sg-save">${U.icon('save')}ใช้ลายเซ็นนี้</button>
+        </div>
+      </div>
+      <div id="sg-upload" class="mt-1" style="display:none">
+        <div class="field"><label>รูปลายเซ็น (PNG/JPG — เซ็นบนกระดาษขาวแล้วถ่ายรูป หรือสแกน)</label><input type="file" id="sg-file" accept="image/*"></div>
+        <label class="check mt-1"><input type="checkbox" id="sg-white" checked> ลบพื้นหลังสีขาวให้โปร่งใสอัตโนมัติ</label>
+      </div>
+
+      <h4 class="mt-3">ตราประทับบริษัท</h4>
+      <div class="form-grid mt-1">
+        <div class="field"><label>อัปโหลดรูปตราประทับ (แนะนำ PNG พื้นหลังโปร่งใส)</label><input type="file" id="st-file" accept="image/*">
+          <label class="check mt-1"><input type="checkbox" id="st-white" checked> ลบพื้นหลังสีขาวอัตโนมัติ</label></div>
+        <div class="field"><label>ตราประทับปัจจุบัน</label><div class="sig-current" id="st-current">${c.stampImage ? `<img src="${c.stampImage}" alt="ตราประทับ" style="max-height:90px"><button class="btn btn-xs btn-ghost" id="st-del" style="color:var(--danger)">${U.icon('trash-2')}ลบ</button>` : '<span class="muted small">ยังไม่มีตราประทับ</span>'}</div></div>
+      </div>
+      <p class="small muted mt-3">ลายเซ็นในรูปแบบรูปภาพถือเป็น “ลายมือชื่ออิเล็กทรอนิกส์” ตาม พ.ร.บ.ว่าด้วยธุรกรรมทางอิเล็กทรอนิกส์ พ.ศ. 2544 ซึ่งใช้กับเอกสารทางการค้าทั่วไปได้ — เก็บรักษาบัญชีผู้ใช้และเครื่องให้ปลอดภัย เพราะผู้ที่เข้าถึงระบบได้จะพิมพ์เอกสารพร้อมลายเซ็นได้</p>`;
+
+    /** แปลงรูปเป็น PNG: ลบพื้นขาว, ตัดขอบว่าง, ย่อขนาด */
+    const processImage = (src, removeWhite, maxW = 600) => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const k = Math.min(1, maxW / img.width, 400 / img.height);
+        const w = Math.max(1, Math.round(img.width * k)), h = Math.max(1, Math.round(img.height * k));
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d'); ctx.drawImage(img, 0, 0, w, h);
+        const data = ctx.getImageData(0, 0, w, h); const px = data.data;
+        let x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          if (removeWhite) { const m = Math.min(px[i], px[i + 1], px[i + 2]); if (m > 225) px[i + 3] = 0; else if (m > 180) px[i + 3] = Math.round(px[i + 3] * (225 - m) / 45); }
+          if (px[i + 3] > 12) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        }
+        if (x1 < 0) return reject(new Error('รูปว่างเปล่า'));
+        ctx.putImageData(data, 0, 0);
+        const pad = 6; x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad); x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+        const out = document.createElement('canvas'); out.width = x1 - x0 + 1; out.height = y1 - y0 + 1;
+        out.getContext('2d').drawImage(cv, x0, y0, out.width, out.height, 0, 0, out.width, out.height);
+        resolve(out.toDataURL('image/png'));
+      };
+      img.onerror = () => reject(new Error('อ่านรูปไม่ได้'));
+      img.src = src;
+    });
+    const readFile = (f) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+    const saveName = () => { c.signName = U.$('#sg-name').value.trim(); };
+    const commit = (msg) => { saveName(); Store.save(); U.toast(msg); App.render(); };
+
+    // mode switch
+    U.$$('#sg-mode button').forEach((b) => b.onclick = () => {
+      U.$$('#sg-mode button').forEach((x) => x.classList.toggle('active', x === b));
+      U.$('#sg-draw').style.display = b.dataset.m === 'draw' ? '' : 'none';
+      U.$('#sg-upload').style.display = b.dataset.m === 'upload' ? '' : 'none';
+    });
+    U.$('#sg-name').onchange = () => { saveName(); Store.save({ silent: true }); };
+
+    // signature pad
+    const pad = U.$('#sg-pad'), wrap = pad.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = pad.getContext('2d');
+    let ink = '#111827', drawn = false, pts = [];
+    const size = () => { const w = wrap.clientWidth, h = 200; pad.width = w * dpr; pad.height = h * dpr; pad.style.width = w + 'px'; pad.style.height = h + 'px'; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; };
+    size();
+    const pos = (e) => { const r = pad.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    pad.addEventListener('pointerdown', (e) => { e.preventDefault(); pad.setPointerCapture(e.pointerId); pts = [pos(e)]; drawn = true; wrap.classList.add('used');
+      ctx.strokeStyle = ink; ctx.fillStyle = ink; ctx.lineWidth = +U.$('#sg-width').value; ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); });
+    pad.addEventListener('pointermove', (e) => {
+      if (!pts.length) return;
+      pts.push(pos(e)); const n = pts.length; if (n < 3) return;
+      const [a, b, cc] = [pts[n - 3], pts[n - 2], pts[n - 1]];
+      ctx.beginPath(); ctx.moveTo((a.x + b.x) / 2, (a.y + b.y) / 2); ctx.quadraticCurveTo(b.x, b.y, (b.x + cc.x) / 2, (b.y + cc.y) / 2); ctx.stroke();
+    });
+    const end = () => { pts = []; };
+    pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
+    U.$$('[data-ink]').forEach((b) => b.onclick = () => { ink = b.dataset.ink; U.$$('[data-ink]').forEach((x) => { x.classList.toggle('btn-soft', x === b); x.classList.toggle('btn-outline', x !== b); }); });
+    U.$('#sg-clear').onclick = () => { ctx.clearRect(0, 0, pad.width, pad.height); drawn = false; wrap.classList.remove('used'); };
+    U.$('#sg-save').onclick = async () => {
+      if (!drawn) return U.toast('กรุณาเซ็นชื่อในกรอบก่อน', 'error');
+      try { c.signImage = await processImage(pad.toDataURL('image/png'), false); commit('บันทึกลายเซ็นแล้ว'); } catch (e) { U.toast(e.message, 'error'); }
+    };
+    U.$('#sg-file').onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (f.size > 5 * 1024 * 1024) return U.toast('ไฟล์ใหญ่เกิน 5MB', 'error');
+      try { c.signImage = await processImage(await readFile(f), U.$('#sg-white').checked); commit('บันทึกลายเซ็นแล้ว'); } catch (er) { U.toast(er.message, 'error'); }
+    };
+    U.$('#st-file').onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (f.size > 5 * 1024 * 1024) return U.toast('ไฟล์ใหญ่เกิน 5MB', 'error');
+      try { c.stampImage = await processImage(await readFile(f), U.$('#st-white').checked, 400); commit('บันทึกตราประทับแล้ว'); } catch (er) { U.toast(er.message, 'error'); }
+    };
+    const sd = U.$('#sg-del'); if (sd) sd.onclick = async () => { if (await U.confirm('ลบลายเซ็นอิเล็กทรอนิกส์?', { danger: true })) { c.signImage = ''; commit('ลบลายเซ็นแล้ว'); } };
+    const td = U.$('#st-del'); if (td) td.onclick = async () => { if (await U.confirm('ลบรูปตราประทับ?', { danger: true })) { c.stampImage = ''; commit('ลบตราประทับแล้ว'); } };
   } else if (tab === 'google') {
     body.innerHTML = `
       <div class="alert ${Sync.enabled() ? 'alert-ok' : 'alert-info'}">${U.icon(Sync.enabled() ? 'cloud' : 'cloud-off')}<div>${Sync.enabled() ? `เชื่อมต่อ Google แล้ว · ซิงก์ล่าสุด ${s.meta.syncedAt ? new Date(s.meta.syncedAt).toLocaleString('th-TH') : '-'}` : 'ยังไม่ได้เชื่อมต่อ — ข้อมูลเก็บอยู่ในเบราว์เซอร์เครื่องนี้เท่านั้น'}</div></div>

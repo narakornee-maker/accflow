@@ -2,7 +2,7 @@
  * Print: Preview + edit panel, A4 templates (modern / classic), payslip
  * ============================================================ */
 const Print = {
-  DEFAULTS: { template: 'modern', color: '#16a34a', copies: 'original', showLogo: true, showStamp: true, showDiscount: true, showVat: true,
+  DEFAULTS: { template: 'modern', color: '#16a34a', copies: 'original', showLogo: true, showStamp: true, showDiscount: true, showVat: true, useSign: true, useStampImg: true,
     signLeft: '', signRight: '', footer: '' },
   COLORS: ['#16a34a', '#2563eb', '#1e3a8a', '#0d9488', '#ea580c', '#7c3aed', '#be123c', '#111827'],
 
@@ -54,6 +54,9 @@ const Print = {
     .m .sign .ln { border-top: 1px dashed #6b7280; padding-top: 6px; font-weight: 600; }
     .m .sign .ln small { color: #6b7280; font-weight: 400; }
     .m .stamp { color: #d1d5db; font-size: 16px; font-weight: 700; padding-bottom: 8px; }
+    .sig { display: block; height: 58px; max-width: 190px; object-fit: contain; margin: 0 auto -4px; }
+    .sig-sp { height: 58px; }
+    .stamp-img { max-height: 96px; max-width: 130px; object-fit: contain; opacity: .92; }
     .m .pfoot { display: flex; gap: 40px; justify-content: space-between; font-size: 10.5px; font-weight: 600; margin-top: 18px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
 
     /* ---------- classic ---------- */
@@ -149,6 +152,11 @@ const Print = {
     const copies = o.copies === 'both' ? ['ต้นฉบับ', 'สำเนา'] : o.copies === 'copy' ? ['สำเนา'] : ['ต้นฉบับ'];
     const voidMark = d.status === 'void' ? '<div class="void">ยกเลิก</div>' : '';
     const showVatCol = o.showVat && c.vatRate > 0;
+    const useSig = o.useSign && co.signImage;
+    const sigImg = useSig ? `<img class="sig" src="${co.signImage}" alt="ลายเซ็น">` : '<div class="sig-sp"></div>';
+    const stampHtml = o.useStampImg && co.stampImage ? `<img class="stamp-img" src="${co.stampImage}" alt="ตราประทับ">` : o.showStamp ? 'ตราประทับบริษัท' : '';
+    const fullDate = U.thDate(d.date).replace(/\/(\d\d)$/, '/25$1');
+    const signDate = useSig ? fullDate : '......................';
     const coLine = [co.address, co.taxId ? `เลขผู้เสียภาษี ${co.taxId}` : ''].filter(Boolean).join(' · ');
 
     const itemRows = (cls) => c.lines.map((l, i) => {
@@ -186,9 +194,9 @@ const Print = {
           ${c.wht ? `<div><span>หัก ณ ที่จ่าย ${c.whtRate} %</span><span class="num">${U.money(c.wht)}</span></div><div class="sep grand"><span>ยอดชำระสุทธิ</span><span class="num">${U.money(c.net)}</span></div>` : ''}
         </div></div>
       <div class="spacer"></div>
-      <div class="sign"><div><div class="ln">${U.esc(signL.split(' / ')[0])}${signL.includes(' / ') ? ` <small>/ ${U.esc(signL.split(' / ')[1])}</small>` : ''}<br>วันที่ <small>/ Date</small> ......................</div></div>
-        <div class="stamp">${o.showStamp ? 'ตราประทับบริษัท' : ''}</div>
-        <div><div class="ln">${U.esc(signR.split(' / ')[0])}${signR.includes(' / ') ? ` <small>/ ${U.esc(signR.split(' / ')[1])}</small>` : ''}${co.signName && !purchase ? `<br>(${U.esc(co.signName)})` : ''}<br>วันที่ <small>/ Date</small> ......................</div></div></div>
+      <div class="sign"><div><div class="sig-sp"></div><div class="ln">${U.esc(signL.split(' / ')[0])}${signL.includes(' / ') ? ` <small>/ ${U.esc(signL.split(' / ')[1])}</small>` : ''}<br>วันที่ <small>/ Date</small> ......................</div></div>
+        <div class="stamp">${stampHtml}</div>
+        <div>${sigImg}<div class="ln">${U.esc(signR.split(' / ')[0])}${signR.includes(' / ') ? ` <small>/ ${U.esc(signR.split(' / ')[1])}</small>` : ''}${co.signName ? `<br>(${U.esc(co.signName)})` : ''}<br>วันที่ <small>/ Date</small> ${signDate}</div></div></div>
       <div class="pfoot"><span>หน้า 1 / 1</span><span>${U.esc(o.footer || coLine)}</span></div></div>`;
 
     const classic = (copy) => `<div class="page k">${voidMark}
@@ -213,8 +221,8 @@ const Print = {
           <div class="g"><span>จำนวนเงินรวมทั้งสิ้น</span><span class="num">${U.money(c.total)}</span></div>
           ${c.wht ? `<div><span>หักภาษี ณ ที่จ่าย ${c.whtRate}%</span><span class="num">${U.money(c.wht)}</span></div><div class="n"><span>ยอดชำระสุทธิ</span><span class="num">${U.money(c.net)}</span></div>` : ''}</div></div>
       <div class="spacer"></div>
-      <div class="sign"><div><div class="ln">${U.esc(signL)}</div><div class="d">วันที่ ........../........../..........</div></div><div class="stamp">${o.showStamp ? 'ตราประทับบริษัท' : ''}</div>
-        <div><div class="ln">${U.esc(signR)}${co.signName && !purchase ? `<br>(${U.esc(co.signName)})` : ''}</div><div class="d">วันที่ ........../........../..........</div></div></div>
+      <div class="sign"><div><div class="sig-sp"></div><div class="ln">${U.esc(signL)}</div><div class="d">วันที่ ........../........../..........</div></div><div class="stamp">${stampHtml}</div>
+        <div>${sigImg}<div class="ln">${U.esc(signR)}${co.signName ? `<br>(${U.esc(co.signName)})` : ''}</div><div class="d">วันที่ ${useSig ? fullDate : '........../........../..........'}</div></div></div>
       <div class="pfoot">${U.esc(o.footer || 'ออกโดยโปรแกรมบัญชีออนไลน์ AccFlow')}</div></div>`;
 
     return copies.map((cp) => (o.template === 'classic' ? classic(cp) : modern(cp))).join('');
@@ -244,7 +252,8 @@ const Print = {
             <div class="lbl-sm mt-1">สีหลัก</div>
             <div class="swatches">${this.COLORS.map((c) => `<button type="button" data-color="${c}" style="background:${c}" class="${o.color === c ? 'on' : ''}" title="${c}"></button>`).join('')}<input type="color" data-o="color" value="${o.color}" title="เลือกสีเอง"></div>
             <div class="field mt-1"><label>ฉบับ</label><select data-o="copies">${[['original', 'ต้นฉบับ'], ['copy', 'สำเนา'], ['both', 'ต้นฉบับ + สำเนา']].map(([v, l]) => U.opt(v, l, o.copies)).join('')}</select></div>
-            <div class="pv-checks">${chk('showLogo', 'แสดงโลโก้')}${chk('showStamp', 'ช่องตราประทับ')}${chk('showDiscount', 'คอลัมน์ส่วนลด')}${chk('showVat', 'คอลัมน์ภาษี')}</div>
+            <div class="pv-checks">${chk('showLogo', 'แสดงโลโก้')}${chk('showStamp', 'ช่องตราประทับ')}${chk('showDiscount', 'คอลัมน์ส่วนลด')}${chk('showVat', 'คอลัมน์ภาษี')}${chk('useSign', 'แสดงลายเซ็น')}${chk('useStampImg', 'รูปตราประทับ')}</div>
+            ${Store.state.company.signImage ? '' : `<div class="small muted">ยังไม่มีลายเซ็น — <a href="#/settings/sign" data-gosign>ตั้งค่าลายเซ็นอิเล็กทรอนิกส์</a></div>`}
           </div>
           <div class="pv-sec"><h4>${U.icon('user-round')}${sales ? 'ข้อมูลผู้ติดต่อลูกค้า' : 'ข้อมูลผู้ติดต่อผู้ขาย'}</h4>
             ${inp('contactName', 'ชื่อผู้ติดต่อ (เรียน)', 'เช่น คุณสมศรี')}${inp('contactPhone', 'เบอร์โทรผู้ติดต่อ', '08x-xxx-xxxx', 'tel')}${inp('contactEmail', 'อีเมลผู้ติดต่อ', '', 'email')}</div>
@@ -287,6 +296,7 @@ const Print = {
         root.querySelector('[data-print]').onclick = () => { saveDoc(); frame.contentWindow.focus(); frame.contentWindow.print(); };
         root.querySelector('[data-dl]').onclick = () => { saveDoc(); U.downloadFile(`${d.no}.html`, this.html(title, this.pages(d, o), o.color), 'text/html'); };
         root.querySelector('[data-edit]').onclick = () => { saveDoc(); close(); };
+        const gs = root.querySelector('[data-gosign]'); if (gs) gs.onclick = () => { saveDoc(); close(); };
         root.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { if (dirty) { saveDoc(); U.toast('บันทึกข้อมูลที่แก้ไขแล้ว', 'info'); App.render(); } }));
         render();
       },
@@ -312,7 +322,7 @@ const Print = {
           <div class="tot"><div class="g"><span>รวมรายการหัก</span><span class="num">${U.money(U.r2(l.sso + l.wht + l.deduct))}</span></div></div></div>
         <div class="tot" style="max-width:50%;margin-left:auto"><div class="n"><span>เงินได้สุทธิ</span><span class="num">${U.money(l.net)}</span></div></div>
         <div class="baht">(${U.bahtText(l.net)})</div>
-        <div class="sign"><div><div class="line">ผู้จ่ายเงิน</div></div><div><div class="line">ผู้รับเงิน</div></div></div></div>`;
+        <div class="sign"><div>${co.signImage ? `<img class="sig" src="${co.signImage}" alt="ลายเซ็น">` : '<div class="sig-sp"></div>'}<div class="line">ผู้จ่ายเงิน${co.signName ? `<br>(${U.esc(co.signName)})` : ''}</div></div><div><div class="sig-sp"></div><div class="line">ผู้รับเงิน<br>(${U.esc(e.name || '')})</div></div></div></div>`;
     }).join('');
     this.open(`สลิปเงินเดือน ${run.no}`, pages);
   },
