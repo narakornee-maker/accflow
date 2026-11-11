@@ -44,13 +44,29 @@ const Letters = {
       subject: 'ส่งมอบงานและอนุมัติเบิกจ่ายค่าจ้าง',
       to: '', customer: '', contractor: co.name, workVerb: 'เขียนแบบ', workType: 'For Construction',
       project: '', deliverables: '', serviceName: 'ค่าบริการเขียนแบบ', amount: 0, poNo: '',
-      contractorSigner: co.signName || '', receiverName: '', receiverOrg: '',
+      contractorSigner: co.signName || '', contractorTitle: '', receiverName: '', receiverTitle: '', receiverOrg: '',
     };
   },
 
   blank() {
     return { id: null, no: '', date: U.today(), sourceId: '', contactId: '', basis: 'total', status: 'draft',
       showHead: true, useSign: true, useStamp: false, fields: this.defaults() };
+  },
+
+  /** ผู้ตรวจรับคนล่าสุดของลูกค้ารายนี้ (จากหนังสือฉบับก่อน) */
+  lastReceiver(contactId) {
+    const prev = (Store.state.letters || []).filter((x) => x.contactId === contactId && x.fields && x.fields.receiverName)
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
+    return prev ? { name: prev.fields.receiverName, title: prev.fields.receiverTitle || '' } : null;
+  },
+  /** รายชื่อแนะนำสำหรับช่องผู้ตรวจรับ */
+  receiverSuggestions(contactId) {
+    const names = new Set();
+    const ct = Store.get('contacts', contactId);
+    if (ct && ct.contactPerson) names.add(ct.contactPerson);
+    (Store.state.letters || []).forEach((x) => { if (x.fields && x.fields.receiverName && (!contactId || x.contactId === contactId)) names.add(x.fields.receiverName); });
+    Store.state.documents.forEach((d) => { if (d.contactName && (!contactId || d.contactId === contactId)) names.add(d.contactName); });
+    return [...names];
   },
 
   /** ดึงข้อมูลจากเอกสารขาย */
@@ -68,7 +84,8 @@ const Letters = {
       workType: /for construction/i.test(desc) ? 'For Construction' : (desc || L.fields.workType),
       amount: basis === 'base' ? c.base : basis === 'net' ? c.net : c.total,
       poNo: d.reference || L.fields.poNo || '',
-      receiverName: d.contactName || L.fields.receiverName || '',
+      receiverName: d.contactName || ((this.lastReceiver(d.contactId) || {}).name) || L.fields.receiverName || '',
+      receiverTitle: (!d.contactName && (this.lastReceiver(d.contactId) || {}).title) || L.fields.receiverTitle || '',
     });
     return L;
   },
@@ -77,7 +94,7 @@ const Letters = {
     const ct = Store.get('contacts', contactId) || {};
     const full = `${ct.name || ''}${ct.branch ? ` (${ct.branch})` : ''}`;
     L.contactId = contactId;
-    Object.assign(L.fields, { to: full, customer: ct.name || '', receiverOrg: full, receiverName: L.fields.receiverName || ct.contactPerson || '' });
+    Object.assign(L.fields, { to: full, customer: ct.name || '', receiverOrg: full, receiverName: ct.contactPerson || ((this.lastReceiver(contactId) || {}).name) || L.fields.receiverName || '', receiverTitle: ((this.lastReceiver(contactId) || {}).title) || L.fields.receiverTitle || '' });
     return L;
   },
 
@@ -87,6 +104,11 @@ const Letters = {
     const ed = editable ? 'contenteditable="true" spellcheck="false"' : '';
     const Y = (k, ph = '') => editable ? `<span class="lf" data-k="${k}" data-ph="${U.esc(ph)}" ${ed}>${U.esc(f[k] ?? '')}</span>` : U.esc(f[k] ?? '');
     const E = (k, ph = '') => editable ? `<span class="le" data-k="${k}" data-ph="${U.esc(ph)}" ${ed}>${U.esc(f[k] ?? '')}</span>` : U.esc(f[k] ?? '');
+    const BLANK = '&nbsp;'.repeat(44);
+    const NAME = (k, ph) => (editable ? `<span class="lf" data-k="${k}" data-ph="${U.esc(ph)}" ${ed}>${U.esc(f[k] || '')}</span>` : (f[k] ? U.esc(f[k]) : BLANK));
+    const TITLE = (k, def) => (editable
+      ? `<span class="le" data-k="${k}" data-ph="${U.esc(def)}" ${ed}>${U.esc(f[k] || '')}</span>${f[k] ? '' : ''}`
+      : U.esc(f[k] || def));
     const amt = U.money(f.amount);
     const baht = U.bahtText(f.amount);
     const AMT = editable ? `<span class="lf" data-k="amount" data-num="1" ${ed}>${amt}</span>` : amt;
@@ -105,8 +127,8 @@ const Letters = {
       <p>จึงเรียนมาเพื่อโปรดพิจารณาตรวจรับงานและดำเนินการเบิกจ่ายค่าจ้างต่อไป</p>
       <div class="close">ขอแสดงความนับถือ</div>
       <div class="signs">
-        <div>${sigImg}<div class="dots">…………………………………………</div>(${E('contractorSigner', 'ชื่อผู้รับจ้าง')})<br>ผู้รับจ้าง<br>${E('contractor', '')}</div>
-        <div><div class="sig-sp"></div><div class="dots">…………………………………………</div>(${E('receiverName', '                              ')})<br>ผู้ตรวจรับงาน / ผู้ว่าจ้าง<br>${Y('receiverOrg', 'ชื่อผู้ว่าจ้าง')}</div>
+        <div>${sigImg}<div class="dots">…………………………………………</div>(${NAME('contractorSigner', 'คลิกใส่ชื่อผู้ลงนาม')})<br>${TITLE('contractorTitle', 'ผู้รับจ้าง')}<br>${E('contractor', '')}</div>
+        <div><div class="sig-sp"></div><div class="dots">…………………………………………</div>(${NAME('receiverName', 'คลิกใส่ชื่อผู้ตรวจรับงาน')})<br>${TITLE('receiverTitle', 'ผู้ตรวจรับงาน / ผู้ว่าจ้าง')}<br>${Y('receiverOrg', 'ชื่อผู้ว่าจ้าง')}</div>
       </div>
       ${L.useStamp && co.stampImage ? `<img class="stamp-img" src="${co.stampImage}" alt="">` : ''}
       ${L.no ? `<div class="doc-no">${U.esc(L.no)}</div>` : ''}
@@ -203,6 +225,13 @@ Pages.letterEdit = (view, id, query = {}) => {
         <div class="field"><label>มูลค่าที่ใช้</label><select id="lt-basis">${[['total', 'ยอดรวมทั้งสิ้น (รวม VAT)'], ['base', 'มูลค่าก่อน VAT'], ['net', 'ยอดสุทธิหลังหัก ณ ที่จ่าย']].map(([v, l]) => U.opt(v, l, L.basis)).join('')}</select></div>
         <div class="field"><label>หรือเลือกผู้ว่าจ้าง</label><select id="lt-contact"><option value="">— เลือกลูกค้า —</option>${customers.map((c) => U.opt(c.id, c.name, L.contactId)).join('')}</select></div>
       </div>
+      <div class="pv-sec"><h4>${U.icon('pen-line')}ผู้ลงนาม</h4>
+        <div class="field"><label>ชื่อผู้ตรวจรับงาน (ฝั่งผู้ว่าจ้าง)</label><input id="lt-rname" list="dl-receivers" placeholder="เช่น นายสมชาย ใจดี" value="${U.esc(L.fields.receiverName || '')}"><datalist id="dl-receivers"></datalist></div>
+        <div class="field"><label>ตำแหน่งผู้ตรวจรับงาน</label><input id="lt-rtitle" placeholder="ผู้ตรวจรับงาน / ผู้ว่าจ้าง" value="${U.esc(L.fields.receiverTitle || '')}"></div>
+        <div class="field"><label>ชื่อผู้ลงนามฝั่งผู้รับจ้าง</label><input id="lt-cname" list="dl-signers" value="${U.esc(L.fields.contractorSigner || '')}"><datalist id="dl-signers">${[s.company.signName, ...s.employees.filter((e) => e.active !== false).map((e) => e.name)].filter(Boolean).map((n) => `<option value="${U.esc(n)}">`).join('')}</datalist></div>
+        <div class="field"><label>ตำแหน่งผู้ลงนามฝั่งผู้รับจ้าง</label><input id="lt-ctitle" placeholder="ผู้รับจ้าง" value="${U.esc(L.fields.contractorTitle || '')}"></div>
+        <div class="small muted">ช่องตำแหน่งว่างไว้ = ใช้ข้อความเริ่มต้น · ถ้าเว้นชื่อผู้ตรวจรับว่าง ตอนพิมพ์จะเป็นช่องว่างให้เขียนด้วยมือ</div>
+      </div>
       <div class="pv-sec"><h4>${U.icon('calendar')}เอกสาร</h4>
         <div class="field"><label>วันที่หนังสือ</label><input type="date" id="lt-date" value="${L.date}"></div>
         <div class="pv-checks" style="grid-template-columns:1fr">
@@ -222,8 +251,11 @@ Pages.letterEdit = (view, id, query = {}) => {
   </div>`;
 
   const paper = U.$('#lt-paper');
-  const draw = () => { paper.innerHTML = Letters.render(L, { editable: true }); bindPaper(); };
-  const syncField = (k, src) => paper.querySelectorAll(`[data-k="${k}"]`).forEach((el) => { if (el !== src) el.textContent = k === 'amount' ? U.money(L.fields.amount) : L.fields[k]; });
+  const draw = () => { paper.innerHTML = Letters.render(L, { editable: true }); bindPaper(); syncPanel(); };
+  const PANEL = { receiverName: '#lt-rname', receiverTitle: '#lt-rtitle', contractorSigner: '#lt-cname', contractorTitle: '#lt-ctitle' };
+  const syncPanel = () => { Object.entries(PANEL).forEach(([k, sel]) => { const el = U.$(sel); if (el && document.activeElement !== el) el.value = L.fields[k] || ''; });
+    const dl = U.$('#dl-receivers'); if (dl) dl.innerHTML = Letters.receiverSuggestions(L.contactId).map((n) => `<option value="${U.esc(n)}">`).join(''); };
+  const syncField = (k, src) => { paper.querySelectorAll(`[data-k="${k}"]`).forEach((el) => { if (el !== src) el.textContent = k === 'amount' ? U.money(L.fields.amount) : L.fields[k]; }); if (PANEL[k]) syncPanel(); };
   const bindPaper = () => {
     paper.querySelectorAll('[data-k]').forEach((el) => {
       el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
@@ -245,6 +277,7 @@ Pages.letterEdit = (view, id, query = {}) => {
   draw();
 
   const markDirty = () => { dirty = true; };
+  Object.entries(PANEL).forEach(([k, sel]) => { U.$(sel).addEventListener('input', (e) => { L.fields[k] = e.target.value.trim(); markDirty(); syncField(k, null); }); });
   U.$('#lt-src').onchange = (e) => { if (e.target.value) { Letters.fillFrom(L, e.target.value, U.$('#lt-basis').value); U.$('#lt-contact').value = L.contactId; } else L.sourceId = ''; markDirty(); draw(); };
   U.$('#lt-basis').onchange = (e) => { L.basis = e.target.value; if (L.sourceId) Letters.fillFrom(L, L.sourceId, L.basis); markDirty(); draw(); };
   U.$('#lt-contact').onchange = (e) => { if (e.target.value) Letters.fillContact(L, e.target.value); markDirty(); draw(); };
