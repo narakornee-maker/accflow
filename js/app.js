@@ -10,6 +10,7 @@ const App = {
     { href: '#/list/QT', icon: 'file-text', label: 'ใบเสนอราคา', badge: () => ACC_badge('QT') },
     { href: '#/list/BN', icon: 'file-spreadsheet', label: 'ใบวางบิล / ใบแจ้งหนี้', badge: () => ACC_badge('BN') },
     { href: '#/list/RC', icon: 'receipt', label: 'ใบเสร็จรับเงิน' },
+    { href: '#/letters', icon: 'file-check-2', label: 'หนังสือส่งมอบงาน' },
     { sec: 'ซื้อและจ่าย' },
     { href: '#/list/PO', icon: 'shopping-cart', label: 'ใบสั่งซื้อ' },
     { href: '#/list/GR', icon: 'package-check', label: 'ใบรับสินค้า', badge: () => ACC_badge('GR') },
@@ -55,6 +56,7 @@ const App = {
     m.innerHTML = `<div class="lbl">การขาย</div>${['QT', 'BN', 'RC'].map(item).join('')}<div class="sep"></div>
       <div class="lbl">ซื้อและจ่าย</div>${['PO', 'GR', 'EX'].map(item).join('')}<div class="sep"></div>
       <a href="#/accounting/journal/new">${U.icon('book-plus')}บันทึกบัญชีรายวัน (JV)</a>
+      <a href="#/letter/new">${U.icon('file-check-2')}หนังสือส่งมอบงาน</a>
       <a href="#/payroll/run/new">${U.icon('id-card')}รอบจ่ายเงินเดือน</a>`;
     m.addEventListener('click', () => document.getElementById('new-doc-dd').classList.remove('open'));
   },
@@ -68,6 +70,7 @@ const App = {
       if (path === href) return true;
       const m = path.match(/^#\/doc\/(\w+)/);
       if (m && href === `#/list/${m[1]}`) return true;
+      if (path.startsWith('#/letter/') && href === '#/letters') return true;
       return href !== '#/dashboard' && path.startsWith(href + '/');
     };
     document.getElementById('nav').innerHTML = this.NAV.map((n) => {
@@ -109,6 +112,8 @@ const App = {
       accounting: () => Pages.accounting(view, parts[1], parts[2], query),
       reports: () => Pages.reports(view, parts[1], query),
       settings: () => Pages.settings(view, parts[1]),
+      letters: () => Pages.letters(view, query),
+      letter: () => Pages.letterEdit(view, parts[1], query),
     };
     try {
       (routes[parts[0]] || routes.dashboard)();

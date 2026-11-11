@@ -60,7 +60,7 @@ const DOC_TYPES = {
 };
 
 const COMPANY_NAME = 'VoltGrid Energy & Solutions Co., Ltd.';
-const COLLECTIONS = ['contacts', 'products', 'documents', 'journals', 'stockAdjustments', 'employees', 'payrolls', 'assets'];
+const COLLECTIONS = ['contacts', 'products', 'documents', 'journals', 'stockAdjustments', 'employees', 'payrolls', 'assets', 'letters'];
 
 const Store = {
   KEY: 'accflow_state_v1',
@@ -81,7 +81,7 @@ const Store = {
       },
       counters: {},
       accounts: DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
-      contacts: [], products: [], documents: [], journals: [], stockAdjustments: [], employees: [], payrolls: [], assets: [],
+      contacts: [], products: [], documents: [], journals: [], stockAdjustments: [], employees: [], payrolls: [], assets: [], letters: [],
       deleted: [],
     };
   },
@@ -210,7 +210,7 @@ const Store = {
  * ============================================================ */
 const Activity = {
   KEY: 'accflow_activity',
-  COL: { documents: '', contacts: 'รายชื่อ', products: 'สินค้า', journals: 'บันทึกบัญชี', stockAdjustments: 'ปรับสต็อก', employees: 'พนักงาน', payrolls: 'เงินเดือน', assets: 'สินทรัพย์' },
+  COL: { documents: '', contacts: 'รายชื่อ', products: 'สินค้า', journals: 'บันทึกบัญชี', stockAdjustments: 'ปรับสต็อก', employees: 'พนักงาน', payrolls: 'เงินเดือน', assets: 'สินทรัพย์', letters: 'หนังสือส่งมอบงาน' },
   queue() { try { return JSON.parse(localStorage.getItem(this.KEY)) || []; } catch (e) { return []; } },
   label(col, o) {
     if (col === 'documents') return `${(DOC_TYPES[o.type] || {}).short || o.type} ${o.no || '(ร่าง)'}`;

@@ -338,6 +338,7 @@ Pages.docEdit = (view, type, id, query) => {
   if (!isNew) {
     if (doc.status === 'approved') more.push(`<button onclick="Pages._unlock('${doc.id}')">${U.icon('pencil')}แก้ไข (ยกเลิกอนุมัติ)</button>`);
     if ((type === 'GR' || type === 'EX') && doc.payment && doc.payment.paid) more.push(`<button onclick="Docs.unpay('${doc.id}')">${U.icon('undo-2')}ยกเลิกการจ่ายชำระ</button>`);
+    if (['QT', 'BN', 'RC'].includes(type)) more.push(`<a href="#/letter/new?from=${doc.id}">${U.icon('file-check-2')}สร้างหนังสือส่งมอบงาน</a>`);
     more.push(`<button onclick="Docs.duplicate('${doc.id}')">${U.icon('copy')}ทำสำเนาเอกสาร</button>`);
     more.push(`<button onclick="Pages._showJE('${doc.id}')">${U.icon('book-open')}ดูการบันทึกบัญชี</button>`);
     if (doc.status !== 'void') more.push(`<div class="sep"></div><button onclick="Docs.voidDoc('${doc.id}')" style="color:var(--danger)">${U.icon('ban')}ยกเลิกเอกสาร</button>`);

@@ -479,3 +479,11 @@ body.auth-mode .app { display: none; }
   .auth-top { padding: 14px 18px; }
 }
 @media (prefers-reduced-motion: reduce) { #auth * { animation-duration: .01s !important; animation-delay: 0s !important; } }
+
+/* ============================================================
+ * หนังสือส่งมอบงาน (editor)
+ * ============================================================ */
+.letter-edit { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+.letter-stage { background: #e7ebe5; border-radius: 14px; padding: 24px; overflow-x: auto; }
+.letter-paper .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 18mm 18mm 22mm; background: #fff; box-shadow: 0 6px 30px rgba(20, 61, 24, .14); position: relative; }
+@media (max-width: 900px) { .letter-edit { grid-template-columns: 1fr; } .letter-stage { padding: 10px; } .letter-paper .page { padding: 10mm; } }

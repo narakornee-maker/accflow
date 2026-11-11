@@ -9,6 +9,10 @@ const Auth = {
   googleProfile: null,
   idToken: null,
 
+  IDLE_MS: 60 * 60 * 1000,      // ออกจากระบบอัตโนมัติเมื่อไม่ได้ใช้งาน 1 ชั่วโมง
+  WARN_MS: 2 * 60 * 1000,       // เตือนล่วงหน้า 2 นาที
+  LAST_KEY: 'accflow_last_active',
+
   isAdmin() { return !!(this.user && this.user.role === 'admin'); },
   fullName(u = this.user) { return u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email : ''; },
 
@@ -38,11 +42,16 @@ const Auth = {
       history.replaceState(null, '', location.pathname + location.hash);
     }
     if (!Conn.get().gasUrl) return this.show('setup');
-    if (this.load()) { this.enter(); this.verify(); return; }
+    if (this.load()) {
+      if (Date.now() - this.lastActive() > this.IDLE_MS) { this.clearSession(); sessionStorage.setItem('accflow_idle', '1'); return this.show('login'); }
+      this.enter(); this.verify(); return;
+    }
     this.show('login');
   },
 
   enter(r) {
+    this.touch(true);
+    this.startIdleWatch();
     document.body.classList.remove('auth-mode');
     const root = document.getElementById('auth'); if (root) root.remove();
     this.onReady();
@@ -69,6 +78,60 @@ const Auth = {
     try { await Sync.call('logout'); } catch (e) { /* noop */ }
     this.clearSession();
     localStorage.removeItem(Store.KEY); localStorage.removeItem(Activity.KEY);
+    location.hash = ''; location.reload();
+  },
+
+  /* ---------------- Idle auto-logout ---------------- */
+  lastActive() { return +localStorage.getItem(this.LAST_KEY) || Date.now(); },
+  touch(force) {
+    const now = Date.now();
+    if (!force && now - (this._lastTouch || 0) < 10000) return;   // throttle
+    this._lastTouch = now;
+    localStorage.setItem(this.LAST_KEY, String(now));
+  },
+  startIdleWatch() {
+    if (this._idleOn) return;
+    this._idleOn = true;
+    const onAct = () => { if (this.token) { this.touch(!!this._warnClose); if (this._warnClose) this.checkIdle(); } };
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel', 'scroll'].forEach((ev) => window.addEventListener(ev, onAct, { passive: true, capture: true }));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) this.checkIdle(); });
+    setInterval(() => this.checkIdle(), 15000);
+  },
+  checkIdle() {
+    if (!this.token || this._loggingOut) return;
+    const idle = Date.now() - this.lastActive();
+    if (idle >= this.IDLE_MS) return this.idleLogout();
+    if (idle >= this.IDLE_MS - this.WARN_MS) { if (!this._warnClose) this.idleWarn(); }
+    else if (this._warnClose) { this._warnClose(); this._warnClose = null; }   // ใช้งานจากแท็บอื่นแล้ว
+  },
+  idleWarn() {
+    let timer;
+    this._warnClose = U.modal({
+      title: `${U.icon('timer')} ไม่ได้ใช้งานนานเกินไป`, size: 'sm',
+      body: `<p class="confirm-msg">ระบบจะออกจากระบบอัตโนมัติใน <b id="idle-left">2:00</b> นาที เพื่อความปลอดภัยของข้อมูล</p>`,
+      footer: `<button class="btn btn-ghost" data-out>ออกจากระบบ</button><button class="btn btn-primary" data-stay>${U.icon('mouse-pointer-click')}ใช้งานต่อ</button>`,
+      onOpen: (root, close) => {
+        const tick = () => {
+          const left = Math.max(0, this.IDLE_MS - (Date.now() - this.lastActive()));
+          const el = root.querySelector('#idle-left'); if (el) el.textContent = `${Math.floor(left / 60000)}:${U.pad(Math.floor((left % 60000) / 1000))}`;
+          if (!document.body.contains(root)) clearInterval(timer);
+        };
+        timer = setInterval(tick, 1000); tick();
+        root.querySelector('[data-stay]').onclick = () => { this.touch(true); clearInterval(timer); this._warnClose = null; close(); };
+        root.querySelector('[data-out]').onclick = () => { clearInterval(timer); close(); this.idleLogout(); };
+        root.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { this.touch(true); clearInterval(timer); this._warnClose = null; }));
+      },
+    });
+  },
+  async idleLogout() {
+    if (this._loggingOut) return;
+    this._loggingOut = true;
+    let synced = !Store.state.meta.dirty;
+    if (!synced && Sync.enabled()) { try { await Sync.push(); synced = true; } catch (e) { synced = false; } }
+    try { await Sync.call('logout'); } catch (e) { /* noop */ }
+    this.clearSession();
+    if (synced) { localStorage.removeItem(Store.KEY); localStorage.removeItem(Activity.KEY); }   // ถ้ายังซิงก์ไม่ได้ เก็บไว้ในเครื่องเพื่อส่งขึ้นหลังเข้าสู่ระบบใหม่
+    sessionStorage.setItem('accflow_idle', '1');
     location.hash = ''; location.reload();
   },
 
@@ -145,7 +208,9 @@ const Auth = {
 
   v_login() {
     const c = this.cfg;
+    const idle = sessionStorage.getItem('accflow_idle'); sessionStorage.removeItem('accflow_idle');
     return `<h1>ยินดีต้อนรับสู่ VoltGrid!</h1><p class="auth-lead">เข้าสู่ระบบเพื่อใช้งานระบบบัญชีของบริษัท</p>
+      ${idle ? `<div class="alert alert-info">${U.icon('timer')}<div>ออกจากระบบอัตโนมัติแล้ว เนื่องจากไม่ได้ใช้งานเกิน 1 ชั่วโมง — กรุณาเข้าสู่ระบบอีกครั้ง</div></div>` : ''}
       ${!c.hasUsers ? `<div class="alert alert-warn">${U.icon('crown')}<div>ยังไม่มีผู้ใช้ในระบบ — <b>ผู้ลงทะเบียนคนแรกจะเป็นผู้ดูแลระบบ</b> <a href="#" data-go="register">ลงทะเบียนเลย</a></div></div>` : ''}
       ${c.google ? `<div id="g-btn" class="auth-google"></div>` : ''}
       ${c.google && c.password ? '<div class="auth-or"><span>หรือเข้าสู่ระบบด้วยอีเมล</span></div>' : ''}
