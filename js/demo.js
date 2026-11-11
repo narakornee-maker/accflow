@@ -14,7 +14,7 @@ const Demo = {
     const prev = Store.state;
     const s = Store.defaults();
     s.settings = { ...s.settings, autoSync: prev.settings.autoSync, print: prev.settings.print };
-    ['logo', 'signImage', 'stampImage'].forEach((k) => { if (prev.company[k]) s.company[k] = prev.company[k]; });
+    ['logo', 'appLogo', 'brandName', 'brandSub', 'signImage', 'stampImage'].forEach((k) => { if (prev.company[k]) s.company[k] = prev.company[k]; });
     Store.state = s;
     const today = U.today();
     const fy = ACC.fiscalStart(today);

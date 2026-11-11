@@ -487,3 +487,13 @@ body.auth-mode .app { display: none; }
 .letter-stage { background: #e7ebe5; border-radius: 14px; padding: 24px; overflow-x: auto; }
 .letter-paper .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 16mm 18mm 18mm 22mm; background: #fff; box-shadow: 0 6px 30px rgba(20, 61, 24, .14); position: relative; }
 @media (max-width: 900px) { .letter-edit { grid-template-columns: 1fr; } .letter-stage { padding: 10px; } .letter-paper .page { padding: 10mm; } }
+
+/* ---------------- Custom brand logo ---------------- */
+.brand-logo { overflow: hidden; flex-shrink: 0; }
+.brand-logo.has-img, .auth-logo.has-img { background: #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, .18); }
+.brand-logo img, .auth-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.auth-logo { overflow: hidden; }
+.brand-txt { min-width: 0; }
+.brand-txt b, .brand-txt small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 168px; }
+.brand-prev { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px 10px 12px; border-radius: 12px; background: linear-gradient(180deg, var(--navy), var(--navy-2)); color: #fff; }
+.brand-prev b { display: block; font-size: 15px; } .brand-prev small { font-size: 11px; color: #a8cbaa; }

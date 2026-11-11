@@ -154,7 +154,7 @@ const Auth = {
   frame(inner, view) {
     const reg = view === 'register';
     return `<div class="auth-page"><div class="auth-shell">
-      <header class="auth-top"><div class="auth-brand">${this.logo()}<b>VoltGrid</b></div>
+      <header class="auth-top"><div class="auth-brand">${this.logo()}<b>${U.esc(Brand.cached().name)}</b></div>
         ${['login', 'register'].includes(view) && this.cfg ? `<div class="auth-switch">${reg ? 'มีบัญชีแล้ว?' : 'ยังไม่มีบัญชี?'} <a href="#" data-go="${reg ? 'login' : 'register'}">${reg ? 'เข้าสู่ระบบ' : 'ลงทะเบียน'}</a></div>` : ''}</header>
       <div class="auth-body">
         <section class="auth-hero">
@@ -174,7 +174,7 @@ const Auth = {
       </div></div></div>`;
   },
 
-  logo() { return `<span class="auth-logo">${U.icon('zap')}</span>`; },
+  logo() { const b = Brand.cached(); return `<span class="auth-logo${b.logo ? ' has-img' : ''}">${Brand.logoHtml(b)}</span>`; },
 
   /* ----- views ----- */
   v_setup() {
@@ -209,7 +209,7 @@ const Auth = {
   v_login() {
     const c = this.cfg;
     const idle = sessionStorage.getItem('accflow_idle'); sessionStorage.removeItem('accflow_idle');
-    return `<h1>ยินดีต้อนรับสู่ VoltGrid!</h1><p class="auth-lead">เข้าสู่ระบบเพื่อใช้งานระบบบัญชีของบริษัท</p>
+    return `<h1>ยินดีต้อนรับสู่ ${U.esc(Brand.cached().name)}!</h1><p class="auth-lead">เข้าสู่ระบบเพื่อใช้งานระบบบัญชีของบริษัท</p>
       ${idle ? `<div class="alert alert-info">${U.icon('timer')}<div>ออกจากระบบอัตโนมัติแล้ว เนื่องจากไม่ได้ใช้งานเกิน 1 ชั่วโมง — กรุณาเข้าสู่ระบบอีกครั้ง</div></div>` : ''}
       ${!c.hasUsers ? `<div class="alert alert-warn">${U.icon('crown')}<div>ยังไม่มีผู้ใช้ในระบบ — <b>ผู้ลงทะเบียนคนแรกจะเป็นผู้ดูแลระบบ</b> <a href="#" data-go="register">ลงทะเบียนเลย</a></div></div>` : ''}
       ${c.google ? `<div id="g-btn" class="auth-google"></div>` : ''}

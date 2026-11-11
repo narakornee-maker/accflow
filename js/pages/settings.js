@@ -36,9 +36,28 @@ Pages.settings = (view, tab = 'company') => {
       <div class="field"><label>เว็บไซต์</label><input name="website" value="${U.esc(c.website)}"></div>
       <div class="field"><label>เดือนเริ่มต้นปีบัญชี</label><select name="fyStartMonth">${U.TH_MONTHS.map((m, i) => U.opt(i + 1, m, c.fyStartMonth)).join('')}</select></div>
       <div class="field"><label>ชื่อผู้มีอำนาจลงนาม</label><input name="signName" value="${U.esc(c.signName)}"></div>
-      <div class="field"><label>โลโก้ (ไม่เกิน 200KB)</label><input type="file" id="logo-file" accept="image/*"><input type="hidden" name="logo" value="${U.esc(c.logo)}"></div>
+      <div class="field"><label>โลโก้บนเอกสาร (ไม่เกิน 200KB)</label><input type="file" id="logo-file" accept="image/*"><input type="hidden" name="logo" value="${U.esc(c.logo)}"></div>
       ${c.logo ? `<div class="full"><img src="${c.logo}" style="max-height:64px;border:1px solid var(--border);border-radius:8px;padding:4px"> <button class="btn btn-xs btn-ghost" id="logo-rm">ลบโลโก้</button></div>` : ''}
+      <div class="full"><h4 class="mt-2">โลโก้และชื่อบนเมนู</h4><p class="muted small" style="margin:2px 0 0">แสดงที่มุมซ้ายบนของเมนู หน้าเข้าสู่ระบบ และไอคอนบนแท็บเบราว์เซอร์ — แนะนำรูปสี่เหลี่ยมจัตุรัส (ระบบย่อขนาดให้อัตโนมัติ)</p></div>
+      <div class="field"><label>รูปโลโก้บนเมนู</label><input type="file" id="applogo-file" accept="image/*"><input type="hidden" name="appLogo" value="${U.esc(c.appLogo || '')}">
+        <div class="flex mt-1"><div class="brand-prev" id="applogo-prev"><span class="brand-logo${c.appLogo ? ' has-img' : ''}">${c.appLogo ? `<img src="${c.appLogo}" alt="">` : U.icon('zap')}</span><div><b id="bp-name">${U.esc(c.brandName || 'VoltGrid')}</b><small id="bp-sub">${U.esc(c.brandSub ?? 'Energy & Solutions · บัญชี')}</small></div></div>
+          ${c.appLogo ? `<button class="btn btn-xs btn-ghost" id="applogo-rm" style="color:var(--danger)">${U.icon('trash-2')}ใช้ไอคอนเดิม</button>` : ''}
+          ${c.logo ? `<button class="btn btn-xs btn-soft" id="applogo-same" type="button">ใช้โลโก้เดียวกับเอกสาร</button>` : ''}</div></div>
+      <div class="field"><label>ชื่อบนเมนู</label><input name="brandName" maxlength="24" value="${U.esc(c.brandName || 'VoltGrid')}">
+        <label class="mt-1">ข้อความใต้ชื่อ</label><input name="brandSub" maxlength="40" value="${U.esc(c.brandSub ?? 'Energy & Solutions · บัญชี')}"></div>
     </div>${saveBtn}`;
+    /** ย่อรูปเป็นสี่เหลี่ยมไม่เกิน 256px (PNG โปร่งใส) */
+    const shrink = (src, max = 256) => new Promise((res, rej) => { const img = new Image(); img.onload = () => { const k = Math.min(1, max / Math.max(img.width, img.height)); const cv = document.createElement('canvas'); cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); res(cv.toDataURL('image/png')); }; img.onerror = () => rej(new Error('อ่านรูปไม่ได้')); img.src = src; });
+    const setPrev = (url) => { body.querySelector('[name=appLogo]').value = url; const el = body.querySelector('#applogo-prev .brand-logo'); el.classList.toggle('has-img', !!url); el.innerHTML = url ? `<img src="${url}" alt="">` : U.icon('zap'); U.refreshIcons(); };
+    U.$('#applogo-file').onchange = (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (f.size > 5 * 1024 * 1024) return U.toast('ไฟล์ใหญ่เกิน 5MB', 'error');
+      const r = new FileReader(); r.onload = async () => { try { setPrev(await shrink(r.result)); U.toast('เลือกโลโก้แล้ว กด “บันทึกการตั้งค่า” เพื่อใช้งาน', 'info'); } catch (er) { U.toast(er.message, 'error'); } }; r.readAsDataURL(f);
+    };
+    const same = U.$('#applogo-same'); if (same) same.onclick = async () => { try { setPrev(await shrink(c.logo)); U.toast('กด “บันทึกการตั้งค่า” เพื่อใช้งาน', 'info'); } catch (er) { U.toast(er.message, 'error'); } };
+    const arm = U.$('#applogo-rm'); if (arm) arm.onclick = () => { c.appLogo = ''; Store.save(); U.toast('กลับไปใช้ไอคอนเดิมแล้ว', 'info'); App.render(); };
+    body.querySelector('[name=brandName]').oninput = (e) => { U.$('#bp-name').textContent = e.target.value || 'VoltGrid'; };
+    body.querySelector('[name=brandSub]').oninput = (e) => { U.$('#bp-sub').textContent = e.target.value; };
     U.$('#logo-file').onchange = (e) => {
       const f = e.target.files[0]; if (!f) return;
       if (f.size > 200 * 1024) return U.toast('ไฟล์ใหญ่เกิน 200KB', 'error');
@@ -310,7 +329,7 @@ Pages.settings = (view, tab = 'company') => {
     };
     U.$('#d-reset').onclick = async () => {
       if (!(await U.confirm('ล้างข้อมูลบัญชีทั้งหมดของบริษัท? ทุกคนจะเห็นข้อมูลว่างเปล่า (ระบบสำรองข้อมูลเดิมไว้ใน Google Drive ก่อน)', { danger: true, okText: 'ล้างข้อมูล' }))) return;
-      const d = Store.defaults(); d.company = { ...d.company, ...{ name: s.company.name, nameEn: s.company.nameEn, taxId: s.company.taxId, branch: s.company.branch, address: s.company.address, phone: s.company.phone, email: s.company.email, logo: s.company.logo, signName: s.company.signName, signImage: s.company.signImage, stampImage: s.company.stampImage } };
+      const d = Store.defaults(); d.company = { ...d.company, ...{ name: s.company.name, nameEn: s.company.nameEn, taxId: s.company.taxId, branch: s.company.branch, address: s.company.address, phone: s.company.phone, email: s.company.email, logo: s.company.logo, appLogo: s.company.appLogo, brandName: s.company.brandName, brandSub: s.company.brandSub, signName: s.company.signName, signImage: s.company.signImage, stampImage: s.company.stampImage } };
       try { await Sync.overwrite(d, 'ล้างข้อมูลทั้งหมด'); U.toast('ล้างข้อมูลแล้ว (ข้อมูลกิจการ โลโก้ และลายเซ็นยังอยู่)', 'info'); App.go('#/start'); } catch (er) { U.toast(er.message, 'error'); }
     };
   }

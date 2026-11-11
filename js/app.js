@@ -1,6 +1,32 @@
 /* ============================================================
  * AccFlow — App shell & hash router
  * ============================================================ */
+/** โลโก้/ชื่อบนเมนู — ตั้งค่าได้ที่ ตั้งค่า → ข้อมูลกิจการ (จำไว้ในเครื่องเพื่อแสดงในหน้า Login ด้วย) */
+const Brand = {
+  KEY: 'accflow_brand',
+  DEF: { name: 'VoltGrid', sub: 'Energy & Solutions · บัญชี', logo: '' },
+  fromState() { const c = Store.state.company; return { name: c.brandName || this.DEF.name, sub: c.brandSub ?? this.DEF.sub, logo: c.appLogo || '' }; },
+  cached() { try { return { ...this.DEF, ...(JSON.parse(localStorage.getItem(this.KEY)) || {}) }; } catch (e) { return { ...this.DEF }; } },
+  logoHtml(b) { return b.logo ? `<img src="${b.logo}" alt="">` : U.icon('zap'); },
+  /** แสดงบนแถบเมนู + favicon และจำค่าไว้ */
+  apply() {
+    const b = this.fromState();
+    try { localStorage.setItem(this.KEY, JSON.stringify(b)); } catch (e) { /* noop */ }
+    const el = document.getElementById('brand-logo');
+    if (el) { el.innerHTML = this.logoHtml(b); el.classList.toggle('has-img', !!b.logo); }
+    const n = document.getElementById('brand-name'); if (n) n.textContent = b.name;
+    const sub = document.getElementById('brand-sub'); if (sub) { sub.textContent = b.sub; sub.style.display = b.sub ? '' : 'none'; }
+    this.favicon(b);
+  },
+  /** ไอคอนบนแท็บเบราว์เซอร์: ใช้โลโก้ที่ตั้งไว้ ถ้าไม่มีใช้ไอคอนเริ่มต้น */
+  favicon(b = this.cached()) {
+    const fav = document.getElementById('favicon'); if (!fav) return;
+    if (!this._fav) this._fav = fav.getAttribute('href');
+    fav.setAttribute('href', b.logo || this._fav);
+    const at = document.getElementById('apple-icon'); if (at) { if (!this._at) this._at = at.getAttribute('href'); at.setAttribute('href', b.logo || this._at); }
+  },
+};
+
 const App = {
   NAV: [
     { sec: 'ภาพรวม' },
@@ -38,6 +64,8 @@ const App = {
       if (!e.target.closest('.dropdown')) document.querySelectorAll('.dropdown.open').forEach((d) => d.classList.remove('open'));
     });
     this.renderNewDocMenu();
+    Brand.favicon();   // แสดงโลโก้ที่จำไว้ตั้งแต่หน้า Login
+    document.title = `${Brand.cached().name} — ระบบบัญชีออนไลน์`;
     Auth.start(() => this.boot());
   },
 
@@ -80,6 +108,7 @@ const App = {
       return `<a href="${n.href}" class="${isActive(n.href) ? 'active' : ''}">${U.icon(n.icon)}<span>${n.label}</span>${b ? `<span class="badge">${b}</span>` : ''}</a>`;
     }).join('');
     const c = Store.state.company;
+    Brand.apply();
     const u = Auth.user || {};
     document.getElementById('user-chip').innerHTML = `<button class="user-btn" onclick="App.toggleDropdown('user-dd', event)"><div class="avatar">${U.esc((u.firstName || u.email || '?').slice(0, 1))}</div><span class="user-txt"><b>${U.esc(Auth.fullName() || 'ผู้ใช้')}</b><small>${U.esc(u.position || '')}</small></span>${U.icon('chevron-down')}</button>
       <div class="dropdown-menu"><div class="lbl">${U.esc(u.email || '')}</div>
@@ -90,7 +119,7 @@ const App = {
       ${c.vatRegistered ? 'จด VAT ' + c.vatRate + '%' : 'ไม่จด VAT'}<br><span style="opacity:.7">${U.esc(Store.state.company.name)}</span>`;
   },
 
-  setTitle(t) { document.getElementById('page-title').textContent = t; document.title = `${t} — VoltGrid`; },
+  setTitle(t) { document.getElementById('page-title').textContent = t; document.title = `${t} — ${Brand.fromState().name}`; },
 
   render() {
     this.charts.forEach((c) => c.destroy()); this.charts = [];
