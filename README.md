@@ -55,6 +55,13 @@
    - Authorized JavaScript origins: `https://narakornee-maker.github.io`
 4. คัดลอก Client ID ไปใส่ `GOOGLE_CLIENT_ID` ใน Code.gs → Save → Deploy เวอร์ชันใหม่
 
+## ไฟล์แนบ: เอกสารจากลูกค้า (PO / WO / สัญญา)
+
+- เมนู **เอกสารจากลูกค้า (PO/WO)**: อัปโหลด PDF/รูปภาพ (ไฟล์ละไม่เกิน 10 MB) หรือวางลิงก์ พร้อมประเภท เลขที่ และลูกค้า
+- แนบกับใบเสนอราคา ใบวางบิล ใบเสร็จ และหนังสือส่งมอบงานได้ — ไฟล์ตามไปเมื่อแปลงเอกสาร และเลข PO เติมให้อัตโนมัติ
+- ไฟล์เก็บแบบส่วนตัวใน Google Drive โฟลเดอร์ `AccFlow Data/Attachments/<ชื่อลูกค้า>` เปิดได้ผ่านระบบหลังเข้าสู่ระบบเท่านั้น
+- ต้องใช้ Code.gs เวอร์ชัน 3 ขึ้นไป (วางโค้ดใหม่ → รัน `setup` → Deploy เวอร์ชันใหม่)
+
 ## Deploy ขึ้น GitHub Pages
 
 1. สร้าง repository ใหม่บน GitHub แล้ว push โค้ดนี้ขึ้น branch `main`

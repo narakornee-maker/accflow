@@ -28,7 +28,7 @@ const Docs = {
       note: '', reference: '', refId: '', status: 'draft',
       payAccount: '1120', payMethod: 'transfer',
       payment: { paid: type === 'EX', date: d, account: '1120' },
-      taxInvoiceNo: '', taxInvoiceDate: '',
+      taxInvoiceNo: '', taxInvoiceDate: '', fileIds: [],
       contactName: '', contactPhone: '', contactEmail: '', project: '',
       salesPerson: c.signName || '', salesPhone: c.phone || '',
     };
@@ -44,6 +44,7 @@ const Docs = {
       whtRate: src.whtRate || 0, note: src.note, reference: src.no, refId: src.id,
       contactName: src.contactName || '', contactPhone: src.contactPhone || '', contactEmail: src.contactEmail || '',
       salesPerson: src.salesPerson || '', salesPhone: src.salesPhone || '', project: src.project || '',
+      fileIds: [...(src.fileIds || [])],
     });
     if (doc.type === 'BN' || doc.type === 'GR') doc.dueDate = U.addDays(doc.date, ct.creditDays ?? Store.state.company.defaultCreditDays);
   },
@@ -257,7 +258,7 @@ Pages.docList = (view, type, query) => {
         <th>${refCol}</th><th>${T.party === 'customer' ? 'ชื่อลูกค้า' : 'ผู้ขาย'}</th><th>สินค้า / รายละเอียด</th><th class="num">ยอดเงินรวม</th><th class="num">ยอดสุทธิ</th><th></th></tr></thead>
         <tbody>${shown.map((d) => { const c = ACC.calcDoc(d); return `<tr class="clickable" onclick="if(!event.target.closest('a,button,label,input'))location.hash='#/doc/${type}/${d.id}'">
           <td><label class="switch" onclick="event.stopPropagation()"><input type="checkbox" ${d.status === 'approved' ? 'checked' : ''} ${d.status === 'void' ? 'disabled' : ''} onchange="Docs.setApproved('${d.id}', this.checked)"><span></span></label></td>
-          <td class="doc-link"><a href="#/doc/${type}/${d.id}">${U.esc(d.no)}</a></td>
+          <td class="doc-link"><a href="#/doc/${type}/${d.id}">${U.esc(d.no)}</a>${(d.fileIds || []).length ? ` <span class="clip" title="มีไฟล์แนบ ${d.fileIds.length} ไฟล์">${U.icon('paperclip')}${d.fileIds.length}</span>` : ''}</td>
           <td>${Docs.statusChip(d)}</td><td class="nowrap">${U.thDate(d.date)}${d.dueDate && ['BN', 'GR', 'EX'].includes(type) ? `<div class="muted small">ครบ ${U.thDate(d.dueDate)}</div>` : ''}</td>
           <td>${refCell(d)}</td><td>${U.esc(contact(d.contactId).name || '-')}</td><td style="max-width:300px">${Docs.itemsSummary(d)}</td>
           <td class="num">${U.money(c.total)}</td><td class="num fw-6">${U.money(c.net)}</td>
@@ -296,6 +297,7 @@ Pages.docEdit = (view, type, id, query) => {
       Docs.fillFrom(doc, query.from);
     }
     if (query.contact) doc.contactId = query.contact;
+    if (query.file && Files.get(query.file)) { const f = Files.get(query.file); doc.fileIds = [f.id]; doc.contactId = doc.contactId || f.contactId; if (f.refNo && !doc.reference) doc.reference = f.refNo; }
   } else {
     const d = Store.get('documents', id);
     if (!d) { view.innerHTML = `<div class="card"><div class="empty">${U.icon('file-x')}<h4>ไม่พบเอกสาร</h4><a href="#/list/${type}">กลับไปหน้ารายการ</a></div></div>`; return; }
@@ -409,6 +411,7 @@ Pages.docEdit = (view, type, id, query) => {
             <div class="field"><label>วันที่จ่าย</label><input type="date" data-f="payment.date" value="${(doc.payment && doc.payment.date) || doc.date}" ${dis}></div>
             <div class="field"><label>จ่ายจากบัญชี</label><select data-f="payment.account" ${dis}>${Store.payAccounts().map((a) => U.opt(a.code, `${a.code} ${a.name}`, doc.payment && doc.payment.account)).join('')}</select></div>
           </div></div></div>` : ''}
+        <div id="doc-files" class="mt-2"></div>
         ${!isNew ? `<div class="mt-2 small muted">สร้างเมื่อ ${new Date(doc.createdAt).toLocaleString('th-TH')} · แก้ไขล่าสุด ${new Date(doc.updatedAt).toLocaleString('th-TH')}</div>` : ''}
       </div>
       <div id="totals"></div>
@@ -467,6 +470,15 @@ Pages.docEdit = (view, type, id, query) => {
 
   renderParty(); renderItems(); renderTotals(); togglePay();
 
+  // ไฟล์แนบ: แก้ได้แม้เอกสารอนุมัติแล้ว (ไม่กระทบยอดเงิน) — เอกสารที่บันทึกแล้วจะบันทึกทันที
+  doc.fileIds = doc.fileIds || [];
+  const filesBox = Files.widget({
+    el: U.$('#doc-files'), key: 'doc',
+    getIds: () => doc.fileIds, contactId: () => doc.contactId, refNo: () => doc.reference || '',
+    setIds: (ids) => { doc.fileIds = ids; if (doc.id) { const cur = Store.get('documents', doc.id); if (cur) { cur.fileIds = ids; Store.upsert('documents', cur); } } },
+    onAttach: (f) => { if (f.refNo && !doc.reference && !locked) { doc.reference = f.refNo; const el = form.querySelector('[data-f=reference]'); if (el) el.value = f.refNo; } },
+  });
+
   const setField = (path, val) => { if (path.startsWith('payment.')) { doc.payment = doc.payment || {}; doc.payment[path.split('.')[1]] = val; } else doc[path] = val; };
 
   form.addEventListener('input', (e) => {
@@ -494,6 +506,7 @@ Pages.docEdit = (view, type, id, query) => {
       const v = t.type === 'checkbox' ? t.checked : t.type === 'number' ? +t.value || 0 : t.value;
       setField(t.dataset.f, v);
       if (t.dataset.f === 'contactId') {
+        filesBox.redraw();
         renderParty();
         const cc = Store.get('contacts', v) || {};
         doc.contactName = cc.contactPerson || ''; doc.contactPhone = cc.contactPhone || cc.phone || ''; doc.contactEmail = cc.email || '';

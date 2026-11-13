@@ -65,7 +65,7 @@ const Letters = {
 
   blank() {
     return { id: null, no: '', date: U.today(), sourceId: '', contactId: '', basis: 'total', status: 'draft',
-      showHead: true, useSign: true, useStamp: false, fields: this.defaults() };
+      showHead: true, useSign: true, useStamp: false, fileIds: [], fields: this.defaults() };
   },
 
   /** ผู้ตรวจรับคนล่าสุดของลูกค้ารายนี้ (จากหนังสือฉบับก่อน) */
@@ -93,12 +93,14 @@ const Letters = {
     const desc = ((d.items || [])[0] || {}).description || '';
     const full = `${ct.name || ''}${ct.branch ? ` (${ct.branch})` : ''}`;
     L.sourceId = d.id; L.contactId = d.contactId; L.basis = basis;
+    L.fileIds = [...new Set([...(L.fileIds || []), ...(d.fileIds || [])])];
+    const poFile = (d.fileIds || []).map((id) => Files.get(id)).find((f) => f && f.kind === 'PO' && f.refNo);
     Object.assign(L.fields, {
       to: full, customer: ct.name || '', receiverOrg: full,
       project: d.project || L.fields.project || '',
       workType: /for construction/i.test(desc) ? 'For Construction' : (desc || L.fields.workType),
       amount: basis === 'base' ? c.base : basis === 'net' ? c.net : c.total,
-      poNo: d.reference || L.fields.poNo || '',
+      poNo: d.reference || (poFile && poFile.refNo) || L.fields.poNo || '',
       receiverName: d.contactName || ((this.lastReceiver(d.contactId) || {}).name) || L.fields.receiverName || '',
       receiverTitle: (!d.contactName && (this.lastReceiver(d.contactId) || {}).title) || L.fields.receiverTitle || '',
     });
@@ -253,6 +255,7 @@ Pages.letterEdit = (view, id, query = {}) => {
         <div class="field"><label>มูลค่าที่ใช้</label><select id="lt-basis">${[['total', 'ยอดรวมทั้งสิ้น (รวม VAT)'], ['base', 'มูลค่าก่อน VAT'], ['net', 'ยอดสุทธิหลังหัก ณ ที่จ่าย']].map(([v, l]) => U.opt(v, l, L.basis)).join('')}</select></div>
         <div class="field"><label>หรือเลือกผู้ว่าจ้าง</label><select id="lt-contact"><option value="">— เลือกลูกค้า —</option>${customers.map((c) => U.opt(c.id, c.name, L.contactId)).join('')}</select></div>
       </div>
+      <div class="pv-sec" id="lt-files"></div>
       <div class="pv-sec"><h4>${U.icon('link')}อ้างอิง (ไม่บังคับ)</h4>
         <div class="field"><label>เลขที่ใบสั่งซื้อ (PO)</label><input id="lt-po" placeholder="เช่น PO-1331001185 — เว้นว่างได้" value="${U.esc(L.fields.poNo || '')}"></div>
         <div class="small muted">ถ้าเว้นว่าง จะไม่แสดงบรรทัด “อ้างถึง” และข้อความ “ตามที่ระบุไว้ในใบสั่งซื้อ…” · ช่องโครงการและรายการผลงานก็เว้นว่างได้เช่นกัน</div>
@@ -308,12 +311,19 @@ Pages.letterEdit = (view, id, query = {}) => {
   };
   L._lastTo = L.fields.to;
   draw();
+  L.fileIds = L.fileIds || [];
+  const filesBox = Files.widget({
+    el: U.$('#lt-files'), key: 'lt',
+    getIds: () => L.fileIds, contactId: () => L.contactId, refNo: () => L.fields.poNo || '',
+    setIds: (ids) => { L.fileIds = ids; dirty = true; if (L.id) { const cur = Store.get('letters', L.id); if (cur) { cur.fileIds = ids; Store.upsert('letters', cur); } } },
+    onAttach: (f) => { if (f.kind === 'PO' && f.refNo && !L.fields.poNo) { L.fields.poNo = f.refNo; draw(); } },
+  });
 
   const markDirty = () => { dirty = true; };
   Object.entries(PANEL).forEach(([k, sel]) => { U.$(sel).addEventListener('input', (e) => { L.fields[k] = e.target.value.trim(); markDirty(); syncField(k, null); }); });
-  U.$('#lt-src').onchange = (e) => { if (e.target.value) { Letters.fillFrom(L, e.target.value, U.$('#lt-basis').value); U.$('#lt-contact').value = L.contactId; } else L.sourceId = ''; markDirty(); draw(); };
+  U.$('#lt-src').onchange = (e) => { if (e.target.value) { Letters.fillFrom(L, e.target.value, U.$('#lt-basis').value); U.$('#lt-contact').value = L.contactId; } else L.sourceId = ''; markDirty(); draw(); filesBox.redraw(); };
   U.$('#lt-basis').onchange = (e) => { L.basis = e.target.value; if (L.sourceId) Letters.fillFrom(L, L.sourceId, L.basis); markDirty(); draw(); };
-  U.$('#lt-contact').onchange = (e) => { if (e.target.value) Letters.fillContact(L, e.target.value); markDirty(); draw(); };
+  U.$('#lt-contact').onchange = (e) => { if (e.target.value) Letters.fillContact(L, e.target.value); markDirty(); draw(); filesBox.redraw(); };
   U.$('#lt-date').onchange = (e) => { L.date = e.target.value || U.today(); markDirty(); draw(); };
   U.$('#lt-head').onchange = (e) => { L.showHead = e.target.checked; markDirty(); draw(); };
   U.$('#lt-sign').onchange = (e) => { L.useSign = e.target.checked; markDirty(); draw(); };

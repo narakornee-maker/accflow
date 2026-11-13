@@ -265,6 +265,8 @@ const Print = {
           <div class="pv-sec"><h4>${U.icon('badge-check')}${sales ? 'ข้อมูลผู้ขาย (พนักงานขาย)' : 'ผู้สั่งซื้อ'}</h4>
             ${inp('salesPerson', sales ? 'ชื่อพนักงานขาย' : 'ชื่อผู้สั่งซื้อ')}${inp('salesPhone', 'เบอร์โทร', '', 'tel')}${inp('project', 'โปรเจกต์ / งาน')}${inp('reference', 'เลขที่อ้างอิง')}
             <div class="field"><label>หมายเหตุ</label><textarea data-d="note" rows="3">${U.esc(d.note || '')}</textarea></div></div>
+          ${(d.fileIds || []).filter((x) => Files.get(x)).length ? `<div class="pv-sec"><h4>${U.icon('paperclip')}ไฟล์แนบ (เปิดเพื่อพิมพ์/ส่งแยก)</h4>
+            ${d.fileIds.filter((x) => Files.get(x)).map((x) => { const f = Files.get(x); return `<div class="attach-item">${U.icon(Files.icon(f))}<div class="flex-1" style="min-width:0">${Files.kindChip(f.kind)} <b>${U.esc(f.refNo || '')}</b><div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${U.esc(f.name || '')}</div></div><button type="button" class="btn btn-xs btn-outline" onclick="Files.open('${x}')">${U.icon('external-link')}เปิด</button></div>`; }).join('')}</div>` : ''}
           <div class="pv-sec"><h4>${U.icon('pen-line')}ลายเซ็นและท้ายกระดาษ</h4>
             <div class="field"><label>ลายเซ็นซ้าย</label><input data-o="signLeft" value="${U.esc(o.signLeft)}" placeholder="${U.esc(defL)}"></div>
             <div class="field"><label>ลายเซ็นขวา</label><input data-o="signRight" value="${U.esc(o.signRight)}" placeholder="${U.esc(defR)}"></div>

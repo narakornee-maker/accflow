@@ -1,9 +1,10 @@
 /**
  * ============================================================
- *  VoltGrid Accounting Backend — Google Apps Script  (v2)
+ *  VoltGrid Accounting Backend — Google Apps Script  (v3)
  *  - เก็บข้อมูลบัญชีใน Google Drive (JSON) + Google Sheets
  *  - ระบบผู้ใช้งาน: ลงทะเบียน / เข้าสู่ระบบ (Google หรือรหัสผ่าน) / ผู้ดูแลอนุมัติ
  *  - บันทึกประวัติการใช้งานลงชีต "ประวัติการใช้งาน"
+ *  - เก็บไฟล์แนบ (PO / WO / สัญญา) แบบส่วนตัวในโฟลเดอร์ Attachments
  *  - สำรองข้อมูลอัตโนมัติรายวัน
  * ============================================================
  *  ติดตั้ง / อัปเดต:
@@ -25,6 +26,8 @@ const SESSION_DAYS = 7;             // อายุการเข้าสู�
 const APP_NAME = 'VoltGrid Accounting';
 const FOLDER_NAME = 'AccFlow Data';
 const BACKUP_FOLDER_NAME = 'Backups';
+const ATTACH_FOLDER_NAME = 'Attachments';
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const DATA_FILE = 'accflow-data.json';
 const SHEET_NAME = 'AccFlow Database';
 const USER_SHEET = 'ผู้ใช้งาน';
@@ -40,6 +43,7 @@ const props = () => PropertiesService.getScriptProperties();
 function setup() {
   const folder = getFolder_();
   getBackupFolder_();
+  getAttachFolder_();
   const ss = getSpreadsheet_();
   userSheet_(); logSheet_();
   let token = props().getProperty('API_TOKEN');
@@ -93,7 +97,7 @@ function doPost(e) {
       if (ADMIN_ACTIONS[req.action] && me.role !== 'admin') return json_({ ok: false, code: 'FORBIDDEN', error: 'เฉพาะผู้ดูแลระบบ' });
     }
     switch (req.action) {
-      case 'ping': return json_({ ok: true, app: APP_NAME, version: 2 });
+      case 'ping': return json_({ ok: true, app: APP_NAME, version: 3 });
       case 'config': return json_(config_());
       case 'loginGoogle': return json_(loginGoogle_(req));
       case 'loginPassword': return json_(loginPassword_(req));
@@ -109,6 +113,9 @@ function doPost(e) {
       case 'activity': return json_(activity_(req));
       case 'save': return json_(save_(req, me));
       case 'load': return json_(load_());
+      case 'uploadFile': return json_(uploadFile_(req, me));
+      case 'getFile': return json_(getFile_(req));
+      case 'deleteFile': return json_(deleteFile_(req, me));
       case 'backup': log_(me, 'สำรองข้อมูล', ''); return json_(backup_('manual'));
       case 'listBackups': return json_(listBackups_());
       case 'restore': log_(me, 'กู้คืนข้อมูล', req.id); return json_(restore_(req.id));
@@ -123,7 +130,7 @@ function doPost(e) {
 
 /* =================== Auth =================== */
 function config_() {
-  return { ok: true, app: APP_NAME, version: 2, google: !!GOOGLE_CLIENT_ID, clientId: GOOGLE_CLIENT_ID, password: ALLOW_PASSWORD_LOGIN,
+  return { ok: true, app: APP_NAME, version: 3, files: true, google: !!GOOGLE_CLIENT_ID, clientId: GOOGLE_CLIENT_ID, password: ALLOW_PASSWORD_LOGIN,
     domain: ALLOWED_DOMAIN, hasUsers: getUsers_().length > 0 };
 }
 
@@ -412,6 +419,59 @@ function restore_(id) {
 
 function dailyBackup() {
   if (getDataFile_()) backup_('auto');
+}
+
+/* =================== Attachments (PO / WO / สัญญา) =================== */
+function getAttachFolder_() {
+  const id = props().getProperty('ATTACH_FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreate */ } }
+  const parent = getFolder_();
+  const it = parent.getFoldersByName(ATTACH_FOLDER_NAME);
+  const f = it.hasNext() ? it.next() : parent.createFolder(ATTACH_FOLDER_NAME);
+  props().setProperty('ATTACH_FOLDER_ID', f.getId());
+  return f;
+}
+function safeName_(s) { return String(s || '').replace(/[\\/:*?"<>|#%]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100); }
+
+/** ไฟล์ต้องอยู่ในโฟลเดอร์ Attachments (หรือโฟลเดอร์ย่อย 1 ชั้น) เท่านั้น */
+function attachFile_(fileId) {
+  const f = DriveApp.getFileById(fileId);
+  const root = getAttachFolder_().getId();
+  const ps = f.getParents();
+  while (ps.hasNext()) {
+    const p = ps.next();
+    if (p.getId() === root) return f;
+    const gp = p.getParents();
+    while (gp.hasNext()) if (gp.next().getId() === root) return f;
+  }
+  throw new Error('ไม่พบไฟล์แนบ');
+}
+
+function uploadFile_(req, me) {
+  const name = safeName_(req.name) || 'file';
+  const bytes = Utilities.base64Decode(String(req.data || ''));
+  if (!bytes.length) throw new Error('ไฟล์ว่างเปล่า');
+  if (bytes.length > MAX_FILE_BYTES) throw new Error('ไฟล์ใหญ่เกิน 10 MB');
+  const root = getAttachFolder_();
+  let folder = root;
+  const sub = safeName_(req.folder);
+  if (sub) { const it = root.getFoldersByName(sub); folder = it.hasNext() ? it.next() : root.createFolder(sub); }
+  const file = folder.createFile(Utilities.newBlob(bytes, req.mime || 'application/octet-stream', name));
+  log_(me, 'แนบไฟล์', (sub ? sub + ' / ' : '') + name);
+  return { ok: true, fileId: file.getId(), name: name, size: bytes.length, mime: req.mime || '' };
+}
+
+function getFile_(req) {
+  const f = attachFile_(req.fileId);
+  const blob = f.getBlob();
+  return { ok: true, name: f.getName(), mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
+}
+
+function deleteFile_(req, me) {
+  const f = attachFile_(req.fileId);
+  f.setTrashed(true);
+  log_(me, 'ลบไฟล์แนบ', f.getName());
+  return { ok: true };
 }
 
 /* =================== Google Sheets tables =================== */

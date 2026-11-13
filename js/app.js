@@ -37,6 +37,7 @@ const App = {
     { href: '#/list/BN', icon: 'file-spreadsheet', label: 'ใบวางบิล / ใบแจ้งหนี้', badge: () => ACC_badge('BN') },
     { href: '#/list/RC', icon: 'receipt', label: 'ใบเสร็จรับเงิน' },
     { href: '#/letters', icon: 'file-check-2', label: 'หนังสือส่งมอบงาน' },
+    { href: '#/files', icon: 'paperclip', label: 'เอกสารจากลูกค้า (PO/WO)' },
     { sec: 'ซื้อและจ่าย' },
     { href: '#/list/PO', icon: 'shopping-cart', label: 'ใบสั่งซื้อ' },
     { href: '#/list/GR', icon: 'package-check', label: 'ใบรับสินค้า', badge: () => ACC_badge('GR') },
@@ -142,6 +143,7 @@ const App = {
       reports: () => Pages.reports(view, parts[1], query),
       settings: () => Pages.settings(view, parts[1]),
       letters: () => Pages.letters(view, query),
+      files: () => Pages.files(view, query),
       letter: () => Pages.letterEdit(view, parts[1], query),
     };
     try {

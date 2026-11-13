@@ -497,3 +497,17 @@ body.auth-mode .app { display: none; }
 .brand-txt b, .brand-txt small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 168px; }
 .brand-prev { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px 10px 12px; border-radius: 12px; background: linear-gradient(180deg, var(--navy), var(--navy-2)); color: #fff; }
 .brand-prev b { display: block; font-size: 15px; } .brand-prev small { font-size: 11px; color: #a8cbaa; }
+
+/* ---------------- Attachments ---------------- */
+.attach { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: var(--surface-2); }
+.pv-sec .attach { border: 0; padding: 0; background: none; }
+.attach-h { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; }
+.attach-h .ic { width: 16px; height: 16px; color: var(--primary); }
+.attach-list { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.attach-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: #fff; border: 1px solid var(--border); border-radius: 10px; font-size: 13px; }
+.attach-item > .ic { color: var(--muted); }
+.dropzone { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 16px; border: 2px dashed var(--border-strong); border-radius: 12px; color: var(--muted); cursor: pointer; text-align: center; transition: .15s; }
+.dropzone:hover, .dropzone.over { border-color: var(--primary); background: var(--primary-50); color: var(--primary-700); }
+.dropzone .ic { width: 28px; height: 28px; }
+.clip { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; color: var(--muted); font-weight: 500; }
+.clip .ic { width: 13px; height: 13px; }
