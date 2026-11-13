@@ -14,7 +14,12 @@ const Print = {
     html, body { margin: 0; }
     body { font-family: 'IBM Plex Sans Thai', 'Sarabun', sans-serif; color: #111827; font-size: 12.5px; background: #e5e7eb; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .page { width: 210mm; min-height: 297mm; margin: 16px auto; padding: 12mm 13mm; background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,.12); position: relative; display: flex; flex-direction: column; }
-    @media print { body { background: #fff; } .page { margin: 0; box-shadow: none; page-break-after: always; } .page:last-child { page-break-after: auto; } .tbar { display: none; } }
+    @media print {
+      html, body { background: #fff !important; height: auto !important; }
+      .tbar { display: none !important; }
+      .page { margin: 0 !important; box-shadow: none !important; min-height: 295mm !important; break-after: auto; page-break-after: auto; }
+      .page + .page { break-before: page; page-break-before: always; }
+    }
     .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .spacer { flex: 1; min-height: 16px; }
     .void { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 110px; color: rgba(220, 38, 38, .15); transform: rotate(-20deg); font-weight: 800; pointer-events: none; }
