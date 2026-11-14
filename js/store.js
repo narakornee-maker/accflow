@@ -62,8 +62,56 @@ const DOC_TYPES = {
 const COMPANY_NAME = 'VoltGrid Energy & Solutions Co., Ltd.';
 const COLLECTIONS = ['contacts', 'products', 'documents', 'journals', 'stockAdjustments', 'employees', 'payrolls', 'assets', 'letters', 'files'];
 
+/* ============================================================
+ * Company — หลายบริษัทในระบบเดียว (ข้อมูลแยกกันทั้งในเครื่องและบนเซิร์ฟเวอร์)
+ * ============================================================ */
+const Company = {
+  CUR: 'accflow_company', LIST: 'accflow_companies',
+  get id() { return localStorage.getItem(this.CUR) || 'main'; },
+  list() { try { return JSON.parse(localStorage.getItem(this.LIST)) || []; } catch (e) { return []; } },
+  setList(l) { if (Array.isArray(l)) localStorage.setItem(this.LIST, JSON.stringify(l)); },
+  current() { return this.list().find((c) => c.id === this.id) || { id: this.id, name: '' }; },
+  stateKey(id = this.id) { return id === 'main' ? 'accflow_state_v1' : `accflow_state_v1:${id}`; },
+  activityKey(id = this.id) { return id === 'main' ? 'accflow_activity' : `accflow_activity:${id}`; },
+
+  /** สลับบริษัท: ซิงก์งานค้างของบริษัทปัจจุบันก่อน แล้วโหลดหน้าใหม่ */
+  async switchTo(id) {
+    if (id === this.id) return;
+    if (Store.state.meta.dirty && Sync.enabled()) {
+      try { await Sync.push(); }
+      catch (e) { if (!(await U.confirm('ซิงก์ข้อมูลของบริษัทปัจจุบันไม่สำเร็จ ข้อมูลที่ยังไม่ซิงก์จะเก็บไว้ในเครื่องนี้ก่อน ต้องการสลับบริษัทต่อหรือไม่?', { okText: 'สลับบริษัท' }))) return; }
+    }
+    localStorage.setItem(this.CUR, id);
+    location.hash = '#/dashboard'; location.reload();
+  },
+
+  /** ดึงรายชื่อบริษัทที่มีสิทธิ์ — ถ้าบริษัทปัจจุบันเข้าไม่ได้แล้ว ย้ายไปบริษัทแรก */
+  async refreshList() {
+    const r = await Sync.call('listCompanies');
+    this.setList(r.companies);
+    if (r.companies.length && !r.companies.some((c) => c.id === this.id)) { localStorage.setItem(this.CUR, r.companies[0].id); location.hash = '#/dashboard'; location.reload(); }
+    return r.companies;
+  },
+
+  /** สร้างบริษัทใหม่แล้วสลับเข้าไป (เริ่มจากข้อมูลว่าง) */
+  async create(name) {
+    const r = await Sync.call('createCompany', { name });
+    this.setList(r.companies);
+    const s = Store.defaults();
+    Object.assign(s.company, { name: r.company.name, brandName: r.company.name.replace(/^(บริษัท|ห้างหุ้นส่วนจำกัด|หจก\.?)\s*/, '').replace(/\s*จำกัด(\s*\(มหาชน\))?\s*$/, '').replace(/,?\s*(Co\.,?\s*)?Ltd\.?\s*$/i, '').trim().slice(0, 24) || r.company.name, brandSub: 'ระบบบัญชี' });
+    s.meta.updatedAt = new Date().toISOString(); s.meta.dirty = true;
+    localStorage.setItem(this.stateKey(r.company.id), JSON.stringify(s));
+    await this.switchTo(r.company.id);
+  },
+
+  /** ลบข้อมูลทุกบริษัทที่เก็บในเครื่อง (ตอนออกจากระบบ) */
+  clearLocal() {
+    Object.keys(localStorage).forEach((k) => { if (k.startsWith('accflow_state_v1') || k.startsWith('accflow_activity')) localStorage.removeItem(k); });
+  },
+};
+
 const Store = {
-  KEY: 'accflow_state_v1',
+  get KEY() { return Company.stateKey(); },
   state: null,
   listeners: [],
 
@@ -209,7 +257,7 @@ const Store = {
  * Activity log — ส่งไปบันทึกในชีต "ประวัติการใช้งาน" พร้อมการซิงก์
  * ============================================================ */
 const Activity = {
-  KEY: 'accflow_activity',
+  get KEY() { return Company.activityKey(); },
   COL: { documents: '', contacts: 'รายชื่อ', products: 'สินค้า', journals: 'บันทึกบัญชี', stockAdjustments: 'ปรับสต็อก', employees: 'พนักงาน', payrolls: 'เงินเดือน', assets: 'สินทรัพย์', letters: 'หนังสือส่งมอบงาน', files: 'ไฟล์แนบ' },
   queue() { try { return JSON.parse(localStorage.getItem(this.KEY)) || []; } catch (e) { return []; } },
   label(col, o) {
@@ -245,7 +293,7 @@ const Conn = {
     const cfg = window.ACCFLOW_CONFIG || {};
     if (!c.gasUrl && cfg.gasUrl) c.gasUrl = cfg.gasUrl;
     if (!c.gasUrl) { // ย้ายค่าจากเวอร์ชันเก่า
-      try { const s = JSON.parse(localStorage.getItem(Store.KEY)); if (s && s.settings && s.settings.gasUrl) c.gasUrl = s.settings.gasUrl; } catch (e) { /* noop */ }
+      try { const s = JSON.parse(localStorage.getItem('accflow_state_v1')); if (s && s.settings && s.settings.gasUrl) c.gasUrl = s.settings.gasUrl; } catch (e) { /* noop */ }
     }
     return c;
   },
@@ -291,7 +339,7 @@ const Sync = {
       res = await fetch(gasUrl, {
         method: 'POST', redirect: 'follow',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action, session: (typeof Auth !== 'undefined' && Auth.token) || undefined, ...payload }),
+        body: JSON.stringify({ action, session: (typeof Auth !== 'undefined' && Auth.token) || undefined, company: Company.id, ...payload }),
       });
     } catch (e) {
       throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ต หรือการ Deploy ของ Apps Script (ผู้ที่มีสิทธิ์เข้าถึง: ทุกคน)');
@@ -300,6 +348,7 @@ const Sync = {
     let j;
     try { j = await res.json(); } catch (e) { throw new Error('เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง — ตรวจสอบ URL ของ Apps Script'); }
     if (j.code === 'AUTH' && typeof Auth !== 'undefined') { Auth.expired(); throw new Error(j.error); }
+    if (j.code === 'NOCOMPANY' && Company.id !== 'main') { localStorage.setItem(Company.CUR, 'main'); U.toast(j.error, 'error'); setTimeout(() => location.reload(), 1200); throw new Error(j.error); }
     if (!j.ok && !j.conflict) { const e = new Error(j.error || 'เกิดข้อผิดพลาด'); e.code = j.code; throw e; }
     return j;
   },

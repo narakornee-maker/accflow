@@ -3,7 +3,7 @@
  * ============================================================ */
 Pages.settings = (view, tab = 'company') => {
   const TABS = [['company', 'building', 'ข้อมูลกิจการ'], ['tax', 'percent', 'ภาษีและเอกสาร'], ['payroll', 'id-card', 'เงินเดือน'], ['sign', 'signature', 'ลายเซ็นและตราประทับ'],
-    ['users', 'users', 'ผู้ใช้งาน'], ['activity', 'history', 'ประวัติการใช้งาน'], ['google', 'cloud', 'เซิร์ฟเวอร์ / Google'], ['data', 'database', 'สำรองและกู้คืนข้อมูล']];
+    ['companies', 'building-2', 'บริษัท'], ['users', 'users', 'ผู้ใช้งาน'], ['activity', 'history', 'ประวัติการใช้งาน'], ['google', 'cloud', 'เซิร์ฟเวอร์ / Google'], ['data', 'database', 'สำรองและกู้คืนข้อมูล']];
   if (!Auth.isAdmin()) {
     App.setTitle('ตั้งค่าการใช้งาน');
     view.innerHTML = `<div class="card"><div class="empty">${U.icon('lock')}<h4>เฉพาะผู้ดูแลระบบ</h4><p>การตั้งค่าระบบจัดการโดยผู้ดูแลระบบ — แก้ไขข้อมูลส่วนตัวได้ที่ “โปรไฟล์ของฉัน”</p>
@@ -64,7 +64,11 @@ Pages.settings = (view, tab = 'company') => {
       const r = new FileReader(); r.onload = () => { body.querySelector('[name=logo]').value = r.result; U.toast('เลือกโลโก้แล้ว กดบันทึกเพื่อใช้งาน', 'info'); }; r.readAsDataURL(f);
     };
     const rm = U.$('#logo-rm'); if (rm) rm.onclick = () => { c.logo = ''; Store.save(); App.render(); };
-    bindSave((f) => { delete f[''];  Object.assign(c, f, { fyStartMonth: +f.fyStartMonth }); });
+    bindSave((f) => {
+      delete f['']; Object.assign(c, f, { fyStartMonth: +f.fyStartMonth });
+      // ให้ชื่อในตัวสลับบริษัทตรงกับชื่อกิจการ
+      if (c.name && c.name !== Company.current().name && Sync.enabled()) Sync.call('renameCompany', { id: Company.id, name: c.name }).then((r) => { Company.setList(r.companies); App.renderCompanySwitch(); U.refreshIcons(); }).catch(() => {});
+    });
   } else if (tab === 'tax') {
     body.innerHTML = `<div class="form-grid">
       <label class="check full"><input type="checkbox" name="vatRegistered" ${c.vatRegistered ? 'checked' : ''}> จดทะเบียนภาษีมูลค่าเพิ่ม (VAT)</label>
@@ -242,6 +246,32 @@ Pages.settings = (view, tab = 'company') => {
       } catch (e) { el.textContent = 'โหลดรายการไม่สำเร็จ: ' + e.message; }
     };
     loadBackups();
+  } else if (tab === 'companies') {
+    body.style.maxWidth = 'none';
+    body.innerHTML = `<div class="flex between wrap mb-2"><p class="muted small" style="margin:0">แต่ละบริษัทแยกข้อมูลกันทั้งหมด (เอกสาร บัญชี สต็อก ไฟล์แนบ สำรองข้อมูล) และมีโฟลเดอร์ของตัวเองใน Google Drive — ผู้ใช้งานใช้ร่วมกัน กำหนดสิทธิ์รายบริษัทได้ที่แท็บ “ผู้ใช้งาน”</p>
+      <button class="btn btn-primary btn-sm" onclick="Pages.companyAdd()">${U.icon('plus')}เพิ่มบริษัท</button></div><div id="co-list" class="muted">กำลังโหลด…</div>`;
+    const load = async () => {
+      const el = U.$('#co-list'); if (!el) return;
+      try {
+        const list = await Company.refreshList();
+        el.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th>บริษัท</th><th>สถานะ</th><th></th></tr></thead><tbody>
+          ${list.map((x) => `<tr><td><div class="flex">${U.icon('building-2', 'text-primary')}<b>${U.esc(x.name)}</b></div></td>
+            <td>${x.id === Company.id ? '<span class="chip chip-paid">กำลังใช้งาน</span>' : `<button class="btn btn-xs btn-soft" onclick="Company.switchTo('${x.id}')">${U.icon('arrow-right-left')}สลับไปบริษัทนี้</button>`}</td>
+            <td class="actions"><button class="icon-btn" title="เปลี่ยนชื่อ" data-ren="${x.id}">${U.icon('pencil')}</button>${list.length > 1 && x.id !== Company.id ? `<button class="icon-btn danger" title="นำออกจากระบบ" data-del="${x.id}">${U.icon('trash-2')}</button>` : ''}</td></tr>`).join('')}
+          </tbody></table></div>
+          <p class="small muted mt-2">การ “นำออก” จะซ่อนบริษัทจากระบบ แต่โฟลเดอร์และข้อมูลใน Google Drive ยังอยู่ (ชื่อโฟลเดอร์จะมีคำว่า “นำออกแล้ว” ต่อท้าย) · นำบริษัทที่กำลังใช้งานออกไม่ได้ ให้สลับไปบริษัทอื่นก่อน</p>`;
+        U.refreshIcons(); App.renderCompanySwitch(); U.refreshIcons();
+        el.querySelectorAll('[data-ren]').forEach((b) => b.onclick = () => { const x = list.find((y) => y.id === b.dataset.ren); U.modal({
+          title: 'เปลี่ยนชื่อบริษัท', size: 'sm', body: `<div class="field"><label>ชื่อบริษัท</label><input id="co-name" value="${U.esc(x.name)}"></div><p class="small muted">ชื่อนี้ใช้ในตัวสลับบริษัทและชื่อโฟลเดอร์ — ชื่อบนเอกสารแก้ที่แท็บ “ข้อมูลกิจการ”</p>`,
+          footer: '<button class="btn btn-ghost" data-close>ยกเลิก</button><button class="btn btn-primary" data-ok>บันทึก</button>',
+          onOpen: (root, close) => { root.querySelector('[data-ok]').onclick = async () => { try { await Sync.call('renameCompany', { id: x.id, name: root.querySelector('#co-name').value.trim() }); close(); U.toast('เปลี่ยนชื่อแล้ว'); load(); } catch (e) { U.toast(e.message, 'error'); } }; },
+        }); });
+        el.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { const x = list.find((y) => y.id === b.dataset.del);
+          if (!(await U.confirm(`นำบริษัท <b>${U.esc(x.name)}</b> ออกจากระบบ? ทุกคนจะไม่เห็นบริษัทนี้อีก (ข้อมูลใน Google Drive ยังอยู่)`, { danger: true, okText: 'นำออก' }))) return;
+          try { await Sync.call('removeCompany', { id: x.id }); localStorage.removeItem(Company.stateKey(x.id)); U.toast('นำบริษัทออกแล้ว', 'info'); load(); } catch (e) { U.toast(e.message, 'error'); } });
+      } catch (e) { el.innerHTML = `<div class="alert alert-err">${U.icon('alert-circle')}<div>${U.esc(/unknown action/.test(e.message) ? 'เซิร์ฟเวอร์ยังไม่รองรับหลายบริษัท — อัปเดต Code.gs เป็นเวอร์ชันล่าสุด รัน setup แล้ว Deploy เวอร์ชันใหม่' : e.message)}</div></div>`; U.refreshIcons(); }
+    };
+    load();
   } else if (tab === 'users') {
     body.style.maxWidth = 'none';
     body.innerHTML = `<div class="flex between wrap mb-2"><p class="muted small" style="margin:0">พนักงานลงทะเบียนเอง แล้วผู้ดูแลระบบอนุมัติที่นี่ · ข้อมูลเก็บในชีต “ผู้ใช้งาน”</p>
@@ -251,17 +281,19 @@ Pages.settings = (view, tab = 'company') => {
       const el = U.$('#u-list'); if (!el) return;
       try {
         const { users } = await Sync.call('listUsers');
+        const coText = (u) => { const ids = String(u.companies || '').split(',').filter(Boolean); return ids.length ? ids.map((i) => (Company.list().find((x) => x.id === i) || {}).name || i).join(', ') : 'ทุกบริษัท'; };
         users.sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0) || a.firstName.localeCompare(b.firstName));
         const st2 = { active: ['ใช้งาน', 'paid'], pending: ['รออนุมัติ', 'pending'], disabled: ['ระงับ', 'void'] };
         el.innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th>ชื่อ-นามสกุล</th><th>ตำแหน่ง</th><th>ติดต่อ</th><th>วันเกิด</th><th>สิทธิ์</th><th>สถานะ</th><th>เข้าใช้ล่าสุด</th><th></th></tr></thead><tbody>
           ${users.map((u) => { const me = u.email === Auth.user.email; const [sl, sc] = st2[u.status] || st2.pending; return `<tr>
             <td><b>${U.esc(Auth.fullName(u))}</b>${me ? ' <span class="tag">คุณ</span>' : ''}<div class="muted small">ลงทะเบียน ${U.esc(String(u.createdAt).slice(0, 10))} · ${u.authType.includes('google') ? 'Google' : 'รหัสผ่าน'}</div></td>
-            <td>${U.esc(u.position)}</td><td class="small">${U.esc(u.email)}<br>${U.esc(u.phone)}</td><td class="small">${u.birthDate ? U.thDate(u.birthDate) : '-'}</td>
+            <td>${U.esc(u.position)}${Company.list().length > 1 ? `<div class="muted small">${U.icon('building-2')} ${u.role === 'admin' ? 'ทุกบริษัท' : U.esc(coText(u))}</div>` : ''}</td><td class="small">${U.esc(u.email)}<br>${U.esc(u.phone)}</td><td class="small">${u.birthDate ? U.thDate(u.birthDate) : '-'}</td>
             <td><select data-role="${U.esc(u.email)}" class="input-sm" style="width:auto;min-width:130px">${U.opt('staff', 'พนักงาน', u.role)}${U.opt('admin', 'ผู้ดูแลระบบ', u.role)}</select></td>
             <td><span class="chip chip-${sc}">${sl}</span></td><td class="small">${U.esc(u.lastLogin || '-')}</td>
             <td class="actions">${u.status === 'pending' ? `<button class="btn btn-xs btn-success" data-st="active" data-em="${U.esc(u.email)}">${U.icon('check')}อนุมัติ</button>` : ''}
               ${u.status === 'active' && !me ? `<button class="btn btn-xs btn-outline" data-st="disabled" data-em="${U.esc(u.email)}">${U.icon('ban')}ระงับ</button>` : ''}
               ${u.status === 'disabled' ? `<button class="btn btn-xs btn-outline" data-st="active" data-em="${U.esc(u.email)}">${U.icon('rotate-ccw')}เปิดใช้</button>` : ''}
+              ${u.role === 'admin' ? '' : `<button class="icon-btn" title="บริษัทที่เข้าได้: ${U.esc(coText(u))}" data-co="${U.esc(u.email)}">${U.icon('building-2')}</button>`}
               <button class="icon-btn" title="รีเซ็ตรหัสผ่าน" data-pw="${U.esc(u.email)}">${U.icon('key-round')}</button>
               ${me ? '' : `<button class="icon-btn danger" title="ลบผู้ใช้" data-del="${U.esc(u.email)}">${U.icon('trash-2')}</button>`}</td></tr>`; }).join('')}
           </tbody></table></div>`;
@@ -270,6 +302,20 @@ Pages.settings = (view, tab = 'company') => {
         el.querySelectorAll('[data-st]').forEach((b) => b.onclick = () => act(() => Sync.call('updateUser', { email: b.dataset.em, status: b.dataset.st }), b.dataset.st === 'active' ? 'อนุมัติ/เปิดใช้งานแล้ว' : 'ระงับผู้ใช้แล้ว'));
         el.querySelectorAll('[data-role]').forEach((sel) => sel.onchange = () => act(() => Sync.call('updateUser', { email: sel.dataset.role, role: sel.value }), 'เปลี่ยนสิทธิ์แล้ว'));
         el.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => { if (await U.confirm(`ลบผู้ใช้ ${U.esc(b.dataset.del)}? (ประวัติการใช้งานยังเก็บไว้)`, { danger: true, okText: 'ลบ' })) act(() => Sync.call('deleteUser', { email: b.dataset.del }), 'ลบผู้ใช้แล้ว'); });
+        el.querySelectorAll('[data-co]').forEach((b) => b.onclick = () => { const u = users.find((x) => x.email === b.dataset.co); const cur = String(u.companies || '').split(',').filter(Boolean); const cos = Company.list();
+          U.modal({ title: 'บริษัทที่เข้าใช้งานได้', size: 'sm',
+            body: `<p class="small muted mt-0">${U.esc(Auth.fullName(u))} · ${U.esc(u.email)}</p>
+              <label class="check"><input type="checkbox" id="co-all" ${cur.length ? '' : 'checked'}> <b>ทุกบริษัท</b> (รวมบริษัทที่เพิ่มในอนาคต)</label>
+              <div id="co-pick" style="margin:10px 0 0 26px;display:flex;flex-direction:column;gap:8px">${cos.map((x) => `<label class="check"><input type="checkbox" value="${x.id}" ${!cur.length || cur.includes(x.id) ? 'checked' : ''}> ${U.esc(x.name)}</label>`).join('')}</div>`,
+            footer: '<button class="btn btn-ghost" data-close>ยกเลิก</button><button class="btn btn-primary" data-ok>บันทึก</button>',
+            onOpen: (root, close) => {
+              const all = root.querySelector('#co-all'), pick = root.querySelector('#co-pick');
+              const sync2 = () => { pick.style.opacity = all.checked ? .5 : 1; pick.querySelectorAll('input').forEach((i) => { i.disabled = all.checked; if (all.checked) i.checked = true; }); };
+              all.onchange = sync2; sync2();
+              root.querySelector('[data-ok]').onclick = () => { const ids = [...pick.querySelectorAll('input:checked')].map((i) => i.value);
+                if (!all.checked && !ids.length) return U.toast('เลือกอย่างน้อย 1 บริษัท', 'error');
+                close(); act(() => Sync.call('updateUser', { email: u.email, companies: all.checked ? '*' : ids.join(',') }), 'บันทึกสิทธิ์บริษัทแล้ว'); };
+            } }); });
         el.querySelectorAll('[data-pw]').forEach((b) => b.onclick = () => U.modal({
           title: 'รีเซ็ตรหัสผ่าน', size: 'sm',
           body: `<p class="small muted mt-0">${U.esc(b.dataset.pw)}</p><div class="field"><label>รหัสผ่านใหม่ (8 ตัวขึ้นไป)</label><input type="text" id="np" value="${Math.random().toString(36).slice(2, 6)}${Math.random().toString(36).slice(2, 8).toUpperCase()}"></div><p class="small muted">แจ้งรหัสนี้ให้พนักงาน แล้วให้เปลี่ยนเองที่ “โปรไฟล์ของฉัน”</p>`,
@@ -286,9 +332,9 @@ Pages.settings = (view, tab = 'company') => {
     let rows = [];
     const draw = () => {
       const q = U.$('#a-q').value.toLowerCase();
-      const list = rows.filter((r) => !q || `${r.email} ${r.name} ${r.action} ${r.detail}`.toLowerCase().includes(q));
-      U.$('#a-list').innerHTML = list.length ? `<div class="table-wrap"><table class="tbl compact"><thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>การกระทำ</th><th>รายละเอียด</th></tr></thead><tbody>
-        ${list.map((r) => `<tr><td class="nowrap small">${new Date(r.at).toLocaleString('th-TH')}</td><td><b>${U.esc(r.name || '-')}</b><div class="muted small">${U.esc(r.email)}</div></td><td><span class="tag">${U.esc(r.action)}</span></td><td class="small">${U.esc(r.detail)}</td></tr>`).join('')}
+      const list = rows.filter((r) => !q || `${r.email} ${r.name} ${r.company} ${r.action} ${r.detail}`.toLowerCase().includes(q));
+      U.$('#a-list').innerHTML = list.length ? `<div class="table-wrap"><table class="tbl compact"><thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>บริษัท</th><th>การกระทำ</th><th>รายละเอียด</th></tr></thead><tbody>
+        ${list.map((r) => `<tr><td class="nowrap small">${new Date(r.at).toLocaleString('th-TH')}</td><td><b>${U.esc(r.name || '-')}</b><div class="muted small">${U.esc(r.email)}</div></td><td class="small">${U.esc(r.company || '-')}</td><td><span class="tag">${U.esc(r.action)}</span></td><td class="small">${U.esc(r.detail)}</td></tr>`).join('')}
         </tbody></table></div>` : `<div class="empty">${U.icon('history')}<h4>ไม่มีประวัติ</h4></div>`;
       U.refreshIcons();
     };
@@ -333,4 +379,24 @@ Pages.settings = (view, tab = 'company') => {
       try { await Sync.overwrite(d, 'ล้างข้อมูลทั้งหมด'); U.toast('ล้างข้อมูลแล้ว (ข้อมูลกิจการ โลโก้ และลายเซ็นยังอยู่)', 'info'); App.go('#/start'); } catch (er) { U.toast(er.message, 'error'); }
     };
   }
+};
+
+/** เพิ่มบริษัทใหม่ (ผู้ดูแลระบบ) */
+Pages.companyAdd = () => {
+  if (!Auth.isAdmin()) return U.toast('เฉพาะผู้ดูแลระบบ', 'error');
+  U.modal({
+    title: `${U.icon('building-2')} เพิ่มบริษัท`, size: 'sm',
+    body: `<div class="field"><label class="req">ชื่อบริษัท / กิจการ</label><input id="nc-name" placeholder="เช่น บริษัท ตัวอย่าง จำกัด"></div>
+      <div class="alert alert-info mt-2">${U.icon('info')}<div>ระบบจะสร้างโฟลเดอร์ของบริษัทนี้ใน Google Drive และเริ่มจากข้อมูลว่าง แล้วสลับเข้าไปให้ทันที — ตั้งค่าที่อยู่ เลขผู้เสียภาษี โลโก้ และลายเซ็นได้ที่หน้าตั้งค่า</div></div>`,
+    footer: '<button class="btn btn-ghost" data-close>ยกเลิก</button><button class="btn btn-primary" data-ok>สร้างบริษัท</button>',
+    onOpen: (root) => {
+      root.querySelector('[data-ok]').onclick = async (e) => {
+        const name = root.querySelector('#nc-name').value.trim();
+        if (!name) return U.toast('กรุณาระบุชื่อบริษัท', 'error');
+        const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'กำลังสร้าง…';
+        try { await Company.create(name); }
+        catch (er) { btn.disabled = false; btn.textContent = 'สร้างบริษัท'; U.toast(/unknown action/.test(er.message) ? 'เซิร์ฟเวอร์ยังไม่รองรับหลายบริษัท — อัปเดต Code.gs แล้ว Deploy เวอร์ชันใหม่' : er.message, 'error'); }
+      };
+    },
+  });
 };

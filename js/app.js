@@ -77,6 +77,7 @@ const App = {
     this.render();
     Sync.refresh({ quiet: true });
     Sync.startPolling();
+    Company.refreshList().then(() => this.renderCompanySwitch()).catch(() => {});
   },
 
   renderNewDocMenu() {
@@ -110,6 +111,7 @@ const App = {
     }).join('');
     const c = Store.state.company;
     Brand.apply();
+    this.renderCompanySwitch();
     const u = Auth.user || {};
     document.getElementById('user-chip').innerHTML = `<button class="user-btn" onclick="App.toggleDropdown('user-dd', event)"><div class="avatar">${U.esc((u.firstName || u.email || '?').slice(0, 1))}</div><span class="user-txt"><b>${U.esc(Auth.fullName() || 'ผู้ใช้')}</b><small>${U.esc(u.position || '')}</small></span>${U.icon('chevron-down')}</button>
       <div class="dropdown-menu"><div class="lbl">${U.esc(u.email || '')}</div>
@@ -118,6 +120,18 @@ const App = {
         <div class="sep"></div><button onclick="Auth.logout()" style="color:var(--danger)">${U.icon('log-out')}ออกจากระบบ</button></div>`;
     document.getElementById('sidebar-foot').innerHTML = `ปีบัญชี ${U.thMonth(ACC.fiscalStart(U.today()).slice(0, 7))} ·
       ${c.vatRegistered ? 'จด VAT ' + c.vatRate + '%' : 'ไม่จด VAT'}<br><span style="opacity:.7">${U.esc(Store.state.company.name)}</span>`;
+  },
+
+  /** ตัวสลับบริษัทบนแถบด้านบน */
+  renderCompanySwitch() {
+    const el = document.getElementById('co-dd'); if (!el) return;
+    const list = Company.list();
+    const cur = Company.current().name || Store.state.company.name;
+    if (list.length <= 1 && !Auth.isAdmin()) { el.innerHTML = ''; return; }
+    el.innerHTML = `<button class="co-btn" onclick="App.toggleDropdown('co-dd', event)" title="สลับบริษัท">${U.icon('building-2')}<span>${U.esc(cur)}</span>${U.icon('chevrons-up-down')}</button>
+      <div class="dropdown-menu" style="min-width:270px"><div class="lbl">บริษัท</div>
+        ${list.map((c) => `<button onclick="Company.switchTo('${c.id}')" class="${c.id === Company.id ? 'co-cur' : ''}">${U.icon(c.id === Company.id ? 'check' : 'building')}<span class="flex-1">${U.esc(c.name)}</span></button>`).join('')}
+        ${Auth.isAdmin() ? `<div class="sep"></div><button onclick="Pages.companyAdd()">${U.icon('plus')}เพิ่มบริษัท…</button><a href="#/settings/companies">${U.icon('settings-2')}จัดการบริษัท</a>` : ''}</div>`;
   },
 
   setTitle(t) { document.getElementById('page-title').textContent = t; document.title = `${t} — ${Brand.fromState().name}`; },

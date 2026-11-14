@@ -25,6 +25,7 @@ const Auth = {
   },
   storeSession(r) {
     this.token = r.session; this.user = r.user;
+    if (r.companies) { Company.setList(r.companies); if (r.companies.length && !r.companies.some((c) => c.id === Company.id)) localStorage.setItem(Company.CUR, r.companies[0].id); }
     localStorage.setItem(this.KEY, JSON.stringify({ token: r.session, user: r.user, exp: r.exp }));
   },
   updateUser(u) {
@@ -77,7 +78,7 @@ const Auth = {
     }
     try { await Sync.call('logout'); } catch (e) { /* noop */ }
     this.clearSession();
-    localStorage.removeItem(Store.KEY); localStorage.removeItem(Activity.KEY);
+    Company.clearLocal();
     location.hash = ''; location.reload();
   },
 
@@ -130,7 +131,7 @@ const Auth = {
     if (!synced && Sync.enabled()) { try { await Sync.push(); synced = true; } catch (e) { synced = false; } }
     try { await Sync.call('logout'); } catch (e) { /* noop */ }
     this.clearSession();
-    if (synced) { localStorage.removeItem(Store.KEY); localStorage.removeItem(Activity.KEY); }   // ถ้ายังซิงก์ไม่ได้ เก็บไว้ในเครื่องเพื่อส่งขึ้นหลังเข้าสู่ระบบใหม่
+    if (synced) Company.clearLocal();   // ถ้ายังซิงก์ไม่ได้ เก็บไว้ในเครื่องเพื่อส่งขึ้นหลังเข้าสู่ระบบใหม่
     sessionStorage.setItem('accflow_idle', '1');
     location.hash = ''; location.reload();
   },

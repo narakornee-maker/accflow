@@ -1,10 +1,11 @@
 /**
  * ============================================================
- *  VoltGrid Accounting Backend — Google Apps Script  (v3)
+ *  VoltGrid Accounting Backend — Google Apps Script  (v4)
  *  - เก็บข้อมูลบัญชีใน Google Drive (JSON) + Google Sheets
  *  - ระบบผู้ใช้งาน: ลงทะเบียน / เข้าสู่ระบบ (Google หรือรหัสผ่าน) / ผู้ดูแลอนุมัติ
  *  - บันทึกประวัติการใช้งานลงชีต "ประวัติการใช้งาน"
  *  - เก็บไฟล์แนบ (PO / WO / สัญญา) แบบส่วนตัวในโฟลเดอร์ Attachments
+ *  - หลายบริษัท: แต่ละบริษัทมีโฟลเดอร์ของตัวเอง (ข้อมูล / Backups / Attachments / Sheets)
  *  - สำรองข้อมูลอัตโนมัติรายวัน
  * ============================================================
  *  ติดตั้ง / อัปเดต:
@@ -35,16 +36,16 @@ const LOG_SHEET = 'ประวัติการใช้งาน';
 const KEEP_BACKUPS = 60;
 const USER_COLS = [['email', 'อีเมล'], ['firstName', 'ชื่อ'], ['lastName', 'นามสกุล'], ['phone', 'เบอร์โทร'], ['birthDate', 'วันเกิด'],
   ['position', 'ตำแหน่ง'], ['role', 'สิทธิ์'], ['status', 'สถานะ'], ['authType', 'วิธีเข้าสู่ระบบ'], ['createdAt', 'ลงทะเบียนเมื่อ'],
-  ['lastLogin', 'เข้าใช้ล่าสุด'], ['approvedBy', 'อนุมัติโดย']];
+  ['lastLogin', 'เข้าใช้ล่าสุด'], ['approvedBy', 'อนุมัติโดย'], ['companies', 'บริษัทที่เข้าได้']];
 
 const props = () => PropertiesService.getScriptProperties();
 
 /** รันครั้งแรก / หลังอัปเดตโค้ด: สร้างโฟลเดอร์ ชีต Token และตั้งเวลาสำรองรายวัน */
 function setup() {
   const folder = getFolder_();
-  getBackupFolder_();
-  getAttachFolder_();
   const ss = getSpreadsheet_();
+  try { migrateMainFolder_(); } catch (e) { Logger.log('⚠️ ย้ายโฟลเดอร์บริษัทหลักไม่สำเร็จ (ระบบยังใช้งานได้ตามเดิม): ' + e); }
+  companies_().forEach((c) => { try { coSub_(c.id, BACKUP_FOLDER_NAME); coSub_(c.id, ATTACH_FOLDER_NAME); } catch (e) { /* noop */ } });
   userSheet_(); logSheet_();
   let token = props().getProperty('API_TOKEN');
   if (!token) {
@@ -57,6 +58,7 @@ function setup() {
   Logger.log('✅ ติดตั้งเรียบร้อย');
   Logger.log('📁 Folder: ' + folder.getUrl());
   Logger.log('📊 Sheets: ' + ss.getUrl());
+  Logger.log('🏢 บริษัท: ' + companies_().map((c) => c.name).join(', '));
   Logger.log('🔑 API Token (สำหรับกู้คืนระบบ): ' + token);
   Logger.log('🔐 Google Login: ' + (GOOGLE_CLIENT_ID ? 'เปิด' : 'ปิด (ยังไม่ได้ใส่ GOOGLE_CLIENT_ID)'));
 }
@@ -82,7 +84,8 @@ function doGet() {
 }
 
 const PUBLIC_ACTIONS = { ping: 1, config: 1, loginGoogle: 1, loginPassword: 1, register: 1 };
-const ADMIN_ACTIONS = { listUsers: 1, updateUser: 1, deleteUser: 1, resetPassword: 1, activity: 1, restore: 1 };
+const ADMIN_ACTIONS = { listUsers: 1, updateUser: 1, deleteUser: 1, resetPassword: 1, activity: 1, restore: 1, createCompany: 1, renameCompany: 1, removeCompany: 1 };
+const COMPANY_ACTIONS = { save: 1, load: 1, uploadFile: 1, getFile: 1, deleteFile: 1, backup: 1, listBackups: 1, restore: 1 };
 
 function doPost(e) {
   let req;
@@ -96,8 +99,9 @@ function doPost(e) {
       if (!me) return json_({ ok: false, code: 'AUTH', error: 'กรุณาเข้าสู่ระบบใหม่' });
       if (ADMIN_ACTIONS[req.action] && me.role !== 'admin') return json_({ ok: false, code: 'FORBIDDEN', error: 'เฉพาะผู้ดูแลระบบ' });
     }
+    const cid = COMPANY_ACTIONS[req.action] ? cid_(req, me) : null;
     switch (req.action) {
-      case 'ping': return json_({ ok: true, app: APP_NAME, version: 3 });
+      case 'ping': return json_({ ok: true, app: APP_NAME, version: 4 });
       case 'config': return json_(config_());
       case 'loginGoogle': return json_(loginGoogle_(req));
       case 'loginPassword': return json_(loginPassword_(req));
@@ -111,18 +115,22 @@ function doPost(e) {
       case 'deleteUser': return json_(deleteUser_(req, me));
       case 'resetPassword': return json_(resetPassword_(req, me));
       case 'activity': return json_(activity_(req));
-      case 'save': return json_(save_(req, me));
-      case 'load': return json_(load_());
-      case 'uploadFile': return json_(uploadFile_(req, me));
-      case 'getFile': return json_(getFile_(req));
-      case 'deleteFile': return json_(deleteFile_(req, me));
-      case 'backup': log_(me, 'สำรองข้อมูล', ''); return json_(backup_('manual'));
-      case 'listBackups': return json_(listBackups_());
-      case 'restore': log_(me, 'กู้คืนข้อมูล', req.id); return json_(restore_(req.id));
+      case 'listCompanies': return json_({ ok: true, companies: myCompanies_(me) });
+      case 'createCompany': return json_(createCompany_(req, me));
+      case 'renameCompany': return json_(renameCompany_(req, me));
+      case 'removeCompany': return json_(removeCompany_(req, me));
+      case 'save': return json_(save_(req, me, cid));
+      case 'load': return json_(load_(cid));
+      case 'uploadFile': return json_(uploadFile_(req, me, cid));
+      case 'getFile': return json_(getFile_(req, cid));
+      case 'deleteFile': return json_(deleteFile_(req, me, cid));
+      case 'backup': logRows_(me, [{ action: 'สำรองข้อมูล', detail: '' }], company_(cid).name); return json_(backup_('manual', cid));
+      case 'listBackups': return json_(listBackups_(cid));
+      case 'restore': logRows_(me, [{ action: 'กู้คืนข้อมูล', detail: req.id }], company_(cid).name); return json_(restore_(req.id, cid));
       default: return json_({ ok: false, error: 'unknown action: ' + req.action });
     }
   } catch (err) {
-    return json_({ ok: false, error: String((err && err.message) || err) });
+    return json_({ ok: false, code: (err && err.code) || undefined, error: String((err && err.message) || err) });
   } finally {
     try { lock.releaseLock(); } catch (e2) { /* noop */ }
   }
@@ -130,7 +138,7 @@ function doPost(e) {
 
 /* =================== Auth =================== */
 function config_() {
-  return { ok: true, app: APP_NAME, version: 3, files: true, google: !!GOOGLE_CLIENT_ID, clientId: GOOGLE_CLIENT_ID, password: ALLOW_PASSWORD_LOGIN,
+  return { ok: true, app: APP_NAME, version: 4, files: true, multiCompany: true, google: !!GOOGLE_CLIENT_ID, clientId: GOOGLE_CLIENT_ID, password: ALLOW_PASSWORD_LOGIN,
     domain: ALLOWED_DOMAIN, hasUsers: getUsers_().length > 0 };
 }
 
@@ -222,7 +230,7 @@ function loginResult_(u, via) {
   props().setProperty('sess:' + session, JSON.stringify({ email: u.email, exp: exp }));
   u.lastLogin = nowStr_(); saveUser_(u);
   log_(u, 'เข้าสู่ระบบ', via);
-  const res = { ok: true, session: session, exp: exp, user: publicUser_(u) };
+  const res = { ok: true, session: session, exp: exp, user: publicUser_(u), companies: myCompanies_(u) };
   if (u.role === 'admin') res.pendingUsers = getUsers_().filter((x) => x.status === 'pending').length;
   return res;
 }
@@ -257,6 +265,7 @@ function updateUser_(req, me) {
   const changes = [];
   if (req.status && req.status !== u.status) { if (req.status === 'active' && u.status === 'pending') u.approvedBy = me.email; changes.push('สถานะ ' + u.status + ' → ' + req.status); u.status = req.status; }
   if (req.role && req.role !== u.role) { changes.push('สิทธิ์ ' + u.role + ' → ' + req.role); u.role = req.role; }
+  if (req.companies !== undefined) { const v = String(req.companies || '').trim(); u.companies = v === '*' ? '' : v; changes.push('บริษัทที่เข้าได้: ' + (u.companies || 'ทุกบริษัท')); }
   if (req.status === 'disabled') revokeSessions_(u.email);
   saveUser_(u); log_(me, 'จัดการผู้ใช้', u.email + ': ' + changes.join(', '));
   return { ok: true, user: publicUser_(u) };
@@ -308,6 +317,9 @@ function userSheet_() {
     sh.getRange(1, 1, 1000, USER_COLS.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, USER_COLS.length).setValues([USER_COLS.map((c) => c[1])]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     sh.setFrozenRows(1);
+  } else if (String(sh.getRange(1, USER_COLS.length).getValues()[0][0]) !== USER_COLS[USER_COLS.length - 1][1]) {
+    // ชีตจากเวอร์ชันก่อน: เติมหัวคอลัมน์ใหม่
+    sh.getRange(1, 1, 1, USER_COLS.length).setValues([USER_COLS.map((c) => c[1])]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
   }
   return sh;
 }
@@ -335,31 +347,129 @@ function logSheet_() {
   let sh = ss.getSheetByName(LOG_SHEET);
   if (!sh) {
     sh = ss.insertSheet(LOG_SHEET);
-    sh.getRange(1, 1, 1, 5).setValues([['เวลา', 'อีเมล', 'ชื่อ', 'การกระทำ', 'รายละเอียด']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
+    sh.getRange(1, 1, 1, 6).setValues([['เวลา', 'อีเมล', 'ชื่อ', 'การกระทำ', 'รายละเอียด', 'บริษัท']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     sh.setFrozenRows(1); sh.setColumnWidth(1, 160); sh.setColumnWidth(5, 380);
+  } else if (String(sh.getRange(1, 6).getValues()[0][0]) !== 'บริษัท') {
+    sh.getRange(1, 6).setValues([['บริษัท']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
   }
   return sh;
 }
 function log_(user, action, detail) { logRows_(user, [{ action: action, detail: detail }]); }
-function logRows_(user, items) {
+function logRows_(user, items, companyName) {
   if (!items || !items.length) return;
   const sh = logSheet_();
   const name = user ? ((user.firstName || '') + ' ' + (user.lastName || '')).trim() : '';
-  const rows = items.slice(0, 200).map((it) => [it.at ? new Date(it.at) : new Date(), user ? user.email : '', name, String(it.action || '').slice(0, 100), String(it.detail || '').slice(0, 500)]);
-  sh.getRange(sh.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+  const rows = items.slice(0, 200).map((it) => [it.at ? new Date(it.at) : new Date(), user ? user.email : '', name, String(it.action || '').slice(0, 100), String(it.detail || '').slice(0, 500), companyName || '']);
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
 }
 function activity_(req) {
   const sh = logSheet_(); const last = sh.getLastRow();
   const n = Math.min(+req.limit || 300, Math.max(last - 1, 0));
   if (!n) return { ok: true, rows: [] };
-  const vals = sh.getRange(last - n + 1, 1, n, 5).getValues().reverse();
-  return { ok: true, rows: vals.map((r) => ({ at: r[0] instanceof Date ? r[0].toISOString() : String(r[0]), email: r[1], name: r[2], action: r[3], detail: r[4] })) };
+  const vals = sh.getRange(last - n + 1, 1, n, 6).getValues().reverse();
+  return { ok: true, rows: vals.map((r) => ({ at: r[0] instanceof Date ? r[0].toISOString() : String(r[0]), email: r[1], name: r[2], action: r[3], detail: r[4], company: r[5] || '' })) };
+}
+
+/* =================== Companies (หลายบริษัท แยกโฟลเดอร์) =================== */
+/** รายชื่อบริษัท: [{id, name, createdAt}] — บริษัทแรกใช้ id 'main' */
+function companies_() {
+  const raw = props().getProperty('COMPANIES');
+  if (raw) { try { const l = JSON.parse(raw); if (l.length) return l; } catch (e) { /* rebuild */ } }
+  let name = 'บริษัทหลัก';
+  try { const f = coDataFile_('main'); if (f) { const d = JSON.parse(f.getBlob().getDataAsString()); if (d.company && d.company.name) name = d.company.name; } } catch (e) { /* noop */ }
+  const list = [{ id: 'main', name: name, createdAt: nowStr_() }];
+  props().setProperty('COMPANIES', JSON.stringify(list));
+  return list;
+}
+function saveCompanies_(list) { props().setProperty('COMPANIES', JSON.stringify(list)); }
+function company_(cid) { const c = companies_().find((x) => x.id === cid); if (!c) throw new Error('ไม่พบบริษัท'); return c; }
+function userCompanies_(u) { const v = String(u.companies || '').trim(); return !v || v === '*' ? null : v.split(',').map((x) => x.trim()).filter(Boolean); }
+function canAccess_(u, cid) { if (u.role === 'admin') return true; const l = userCompanies_(u); return !l || l.indexOf(cid) >= 0; }
+function myCompanies_(u) { return companies_().filter((c) => canAccess_(u, c.id)).map((c) => ({ id: c.id, name: c.name })); }
+
+/** ตรวจสิทธิ์และคืนรหัสบริษัทของคำขอ */
+function cid_(req, me) {
+  const cid = String(req.company || 'main');
+  company_(cid);
+  if (!canAccess_(me, cid)) { const e = new Error('คุณไม่มีสิทธิ์เข้าถึงบริษัทนี้'); e.code = 'NOCOMPANY'; throw e; }
+  return cid;
+}
+
+function createCompany_(req, me) {
+  const name = clean_(req.name);
+  if (!name) throw new Error('กรุณาระบุชื่อบริษัท');
+  const list = companies_();
+  if (list.some((c) => c.name === name)) throw new Error('มีบริษัทชื่อนี้อยู่แล้ว');
+  const id = 'c' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+  const folder = getFolder_().createFolder(safeName_(name));
+  props().setProperty('C:' + id + ':FOLDER_ID', folder.getId());
+  list.push({ id: id, name: name, createdAt: nowStr_() });
+  saveCompanies_(list);
+  log_(me, 'เพิ่มบริษัท', name);
+  return { ok: true, company: { id: id, name: name }, companies: myCompanies_(me) };
+}
+
+function renameCompany_(req, me) {
+  const name = clean_(req.name);
+  if (!name) throw new Error('กรุณาระบุชื่อบริษัท');
+  const list = companies_(); const c = list.find((x) => x.id === req.id);
+  if (!c) throw new Error('ไม่พบบริษัท');
+  const old = c.name; c.name = name; saveCompanies_(list);
+  try { if (props().getProperty('C:' + c.id + ':FOLDER_ID')) coFolder_(c.id).setName(safeName_(name)); } catch (e) { /* โฟลเดอร์ยังใช้ได้แม้เปลี่ยนชื่อไม่สำเร็จ */ }
+  log_(me, 'เปลี่ยนชื่อบริษัท', old + ' → ' + name);
+  return { ok: true, companies: myCompanies_(me) };
+}
+
+/** นำบริษัทออกจากระบบ — โฟลเดอร์และข้อมูลใน Google Drive ยังอยู่ (เติม "(นำออกแล้ว)" ต่อท้ายชื่อโฟลเดอร์) */
+function removeCompany_(req, me) {
+  const list = companies_();
+  if (list.length <= 1) throw new Error('ต้องมีอย่างน้อย 1 บริษัท');
+  const c = list.find((x) => x.id === req.id);
+  if (!c) throw new Error('ไม่พบบริษัท');
+  try { if (props().getProperty('C:' + c.id + ':FOLDER_ID')) { const f = coFolder_(c.id); f.setName(f.getName() + ' (นำออกแล้ว ' + nowStr_().slice(0, 10) + ')'); } } catch (e) { /* noop */ }
+  saveCompanies_(list.filter((x) => x.id !== c.id));
+  log_(me, 'นำบริษัทออก', c.name);
+  return { ok: true, companies: myCompanies_(me) };
+}
+
+/* ---------- ที่เก็บข้อมูลของแต่ละบริษัท ---------- */
+function coFolder_(cid) {
+  const id = props().getProperty('C:' + cid + ':FOLDER_ID');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* fallthrough */ } }
+  if (cid === 'main') return getFolder_();   // ยังไม่ได้ย้ายเข้าโฟลเดอร์ย่อย (ยังไม่ได้รัน setup)
+  throw new Error('ไม่พบโฟลเดอร์ของบริษัท');
+}
+function coSub_(cid, name) {
+  const f = coFolder_(cid); const it = f.getFoldersByName(name);
+  return it.hasNext() ? it.next() : f.createFolder(name);
+}
+function coDataFile_(cid) { const it = coFolder_(cid).getFilesByName(DATA_FILE); return it.hasNext() ? it.next() : null; }
+function coSheet_(cid) {
+  if (cid === 'main') return getSpreadsheet_();
+  const k = 'C:' + cid + ':SHEET_ID'; const id = props().getProperty(k);
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { /* recreate */ } }
+  const ss = SpreadsheetApp.create(safeName_(company_(cid).name) + ' — Database');
+  DriveApp.getFileById(ss.getId()).moveTo(coFolder_(cid));
+  props().setProperty(k, ss.getId());
+  return ss;
+}
+
+/** ย้ายข้อมูลบริษัทแรกเข้าโฟลเดอร์ของตัวเอง (ทำครั้งเดียวตอนรัน setup) */
+function migrateMainFolder_() {
+  if (props().getProperty('C:main:FOLDER_ID')) return;
+  const root = getFolder_();
+  const name = companies_()[0].name;
+  const sub = root.createFolder(safeName_(name));
+  const fi = root.getFilesByName(DATA_FILE); while (fi.hasNext()) fi.next().moveTo(sub);
+  [BACKUP_FOLDER_NAME, ATTACH_FOLDER_NAME].forEach((n) => { const it = root.getFoldersByName(n); while (it.hasNext()) it.next().moveTo(sub); });
+  props().setProperty('C:main:FOLDER_ID', sub.getId());
+  Logger.log('📦 ย้ายข้อมูล “' + name + '” เข้าโฟลเดอร์ของบริษัทแล้ว: ' + sub.getUrl());
 }
 
 /* =================== Data =================== */
-function save_(req, me) {
+function save_(req, me, cid) {
   if (!req.data || !req.data.accounts) throw new Error('ไม่มีข้อมูล');
-  const file = getDataFile_();
+  const file = coDataFile_(cid);
   if (file && !req.force) {
     const cur = JSON.parse(file.getBlob().getDataAsString());
     const curVer = (cur.meta && cur.meta.syncedAt) || '';
@@ -374,69 +484,62 @@ function save_(req, me) {
   if (clean.settings) { delete clean.settings.gasToken; delete clean.settings.gasUrl; }
   const content = JSON.stringify(clean);
   if (file) file.setContent(content);
-  else getFolder_().createFile(DATA_FILE, content, MimeType.PLAIN_TEXT);
-  if (req.tables) writeTables_(req.tables);
-  if (req.activity && req.activity.length) logRows_(me, req.activity);
+  else coFolder_(cid).createFile(DATA_FILE, content, MimeType.PLAIN_TEXT);
+  if (req.tables) writeTables_(req.tables, coSheet_(cid));
+  if (req.activity && req.activity.length) logRows_(me, req.activity, company_(cid).name);
   return { ok: true, savedAt: savedAt, size: content.length };
 }
 
-function load_() {
-  const file = getDataFile_();
+function load_(cid) {
+  const file = coDataFile_(cid);
   if (!file) return { ok: true, data: null };
   return { ok: true, data: JSON.parse(file.getBlob().getDataAsString()) };
 }
 
-function backup_(kind) {
-  const file = getDataFile_();
+function backup_(kind, cid) {
+  const file = coDataFile_(cid);
   if (!file) throw new Error('ยังไม่มีข้อมูลให้สำรอง');
   const stamp = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyyMMdd-HHmmss');
   const name = 'accflow-backup-' + stamp + (kind === 'auto' ? '-auto' : '') + '.json';
-  const copy = file.makeCopy(name, getBackupFolder_());
-  pruneBackups_();
+  const folder = coSub_(cid, BACKUP_FOLDER_NAME);
+  const copy = file.makeCopy(name, folder);
+  pruneBackups_(folder);
   return { ok: true, name: name, id: copy.getId() };
 }
 
-function listBackups_() {
-  const it = getBackupFolder_().getFiles();
+function listBackups_(cid) {
+  const it = coSub_(cid, BACKUP_FOLDER_NAME).getFiles();
   const files = [];
   while (it.hasNext()) { const f = it.next(); files.push({ id: f.getId(), name: f.getName(), date: f.getDateCreated().toISOString(), size: f.getSize() }); }
   files.sort((a, b) => (a.date < b.date ? 1 : -1));
-  return { ok: true, files: files.slice(0, 30), sheetUrl: getSpreadsheet_().getUrl(), folderUrl: getFolder_().getUrl() };
+  return { ok: true, files: files.slice(0, 30), sheetUrl: coSheet_(cid).getUrl(), folderUrl: coFolder_(cid).getUrl() };
 }
 
-function restore_(id) {
+function restore_(id, cid) {
   const f = DriveApp.getFileById(id);
-  const parents = f.getParents(); let ok = false; const bid = getBackupFolder_().getId();
+  const parents = f.getParents(); let ok = false; const bid = coSub_(cid, BACKUP_FOLDER_NAME).getId();
   while (parents.hasNext()) if (parents.next().getId() === bid) ok = true;
-  if (!ok) throw new Error('ไฟล์ไม่อยู่ในโฟลเดอร์สำรองข้อมูล');
-  backup_('manual');
+  if (!ok) throw new Error('ไฟล์ไม่อยู่ในโฟลเดอร์สำรองข้อมูลของบริษัทนี้');
+  backup_('manual', cid);
   const data = JSON.parse(f.getBlob().getDataAsString());
   data.meta = data.meta || {};
   data.meta.syncedAt = new Date().toISOString();
-  getDataFile_().setContent(JSON.stringify(data));
+  coDataFile_(cid).setContent(JSON.stringify(data));
   return { ok: true, data: data };
 }
 
+/** ตั้งเวลาไว้ใน setup(): สำรองข้อมูลทุกบริษัททุกวัน */
 function dailyBackup() {
-  if (getDataFile_()) backup_('auto');
+  companies_().forEach((c) => { try { if (coDataFile_(c.id)) backup_('auto', c.id); } catch (e) { Logger.log('backup ' + c.name + ': ' + e); } });
 }
 
 /* =================== Attachments (PO / WO / สัญญา) =================== */
-function getAttachFolder_() {
-  const id = props().getProperty('ATTACH_FOLDER_ID');
-  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreate */ } }
-  const parent = getFolder_();
-  const it = parent.getFoldersByName(ATTACH_FOLDER_NAME);
-  const f = it.hasNext() ? it.next() : parent.createFolder(ATTACH_FOLDER_NAME);
-  props().setProperty('ATTACH_FOLDER_ID', f.getId());
-  return f;
-}
 function safeName_(s) { return String(s || '').replace(/[\\/:*?"<>|#%]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100); }
 
-/** ไฟล์ต้องอยู่ในโฟลเดอร์ Attachments (หรือโฟลเดอร์ย่อย 1 ชั้น) เท่านั้น */
-function attachFile_(fileId) {
+/** ไฟล์ต้องอยู่ในโฟลเดอร์ Attachments ของบริษัทนั้น (หรือโฟลเดอร์ย่อย 1 ชั้น) เท่านั้น */
+function attachFile_(fileId, cid) {
   const f = DriveApp.getFileById(fileId);
-  const root = getAttachFolder_().getId();
+  const root = coSub_(cid, ATTACH_FOLDER_NAME).getId();
   const ps = f.getParents();
   while (ps.hasNext()) {
     const p = ps.next();
@@ -447,36 +550,35 @@ function attachFile_(fileId) {
   throw new Error('ไม่พบไฟล์แนบ');
 }
 
-function uploadFile_(req, me) {
+function uploadFile_(req, me, cid) {
   const name = safeName_(req.name) || 'file';
   const bytes = Utilities.base64Decode(String(req.data || ''));
   if (!bytes.length) throw new Error('ไฟล์ว่างเปล่า');
   if (bytes.length > MAX_FILE_BYTES) throw new Error('ไฟล์ใหญ่เกิน 10 MB');
-  const root = getAttachFolder_();
+  const root = coSub_(cid, ATTACH_FOLDER_NAME);
   let folder = root;
   const sub = safeName_(req.folder);
   if (sub) { const it = root.getFoldersByName(sub); folder = it.hasNext() ? it.next() : root.createFolder(sub); }
   const file = folder.createFile(Utilities.newBlob(bytes, req.mime || 'application/octet-stream', name));
-  log_(me, 'แนบไฟล์', (sub ? sub + ' / ' : '') + name);
+  logRows_(me, [{ action: 'แนบไฟล์', detail: (sub ? sub + ' / ' : '') + name }], company_(cid).name);
   return { ok: true, fileId: file.getId(), name: name, size: bytes.length, mime: req.mime || '' };
 }
 
-function getFile_(req) {
-  const f = attachFile_(req.fileId);
+function getFile_(req, cid) {
+  const f = attachFile_(req.fileId, cid);
   const blob = f.getBlob();
   return { ok: true, name: f.getName(), mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
 }
 
-function deleteFile_(req, me) {
-  const f = attachFile_(req.fileId);
+function deleteFile_(req, me, cid) {
+  const f = attachFile_(req.fileId, cid);
   f.setTrashed(true);
-  log_(me, 'ลบไฟล์แนบ', f.getName());
+  logRows_(me, [{ action: 'ลบไฟล์แนบ', detail: f.getName() }], company_(cid).name);
   return { ok: true };
 }
 
 /* =================== Google Sheets tables =================== */
-function writeTables_(tables) {
-  const ss = getSpreadsheet_();
+function writeTables_(tables, ss) {
   Object.keys(tables).forEach(function (name) {
     if (name === USER_SHEET || name === LOG_SHEET) return;
     const rows = tables[name];
@@ -498,6 +600,7 @@ function writeTables_(tables) {
 }
 
 /* =================== helpers =================== */
+/** โฟลเดอร์หลักของระบบ (AccFlow Data) — โฟลเดอร์ของแต่ละบริษัทอยู่ข้างใน */
 function getFolder_() {
   const id = props().getProperty('FOLDER_ID');
   if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreate */ } }
@@ -506,19 +609,7 @@ function getFolder_() {
   props().setProperty('FOLDER_ID', f.getId());
   return f;
 }
-function getBackupFolder_() {
-  const id = props().getProperty('BACKUP_FOLDER_ID');
-  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreate */ } }
-  const parent = getFolder_();
-  const it = parent.getFoldersByName(BACKUP_FOLDER_NAME);
-  const f = it.hasNext() ? it.next() : parent.createFolder(BACKUP_FOLDER_NAME);
-  props().setProperty('BACKUP_FOLDER_ID', f.getId());
-  return f;
-}
-function getDataFile_() {
-  const it = getFolder_().getFilesByName(DATA_FILE);
-  return it.hasNext() ? it.next() : null;
-}
+/** Google Sheets กลาง: ผู้ใช้งาน + ประวัติการใช้งาน (+ ตารางของบริษัทแรก) */
 function getSpreadsheet_() {
   const id = props().getProperty('SHEET_ID');
   if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { /* recreate */ } }
@@ -527,8 +618,8 @@ function getSpreadsheet_() {
   props().setProperty('SHEET_ID', ss.getId());
   return ss;
 }
-function pruneBackups_() {
-  const it = getBackupFolder_().getFiles(); const files = [];
+function pruneBackups_(folder) {
+  const it = folder.getFiles(); const files = [];
   while (it.hasNext()) files.push(it.next());
   files.sort((a, b) => b.getDateCreated() - a.getDateCreated());
   files.slice(KEEP_BACKUPS).forEach((f) => f.setTrashed(true));
