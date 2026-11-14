@@ -22,7 +22,12 @@ const GOOGLE_CLIENT_ID = '';        // OAuth Client ID (…apps.googleuserconten
 const ALLOWED_DOMAIN = '';          // เช่น 'voltgrid.co.th' = รับเฉพาะอีเมลโดเมนนี้ (เว้นว่าง = ทุกอีเมล)
 const ALLOW_PASSWORD_LOGIN = true;  // false = บังคับเข้าสู่ระบบด้วย Google เท่านั้น
 const SESSION_DAYS = 7;             // อายุการเข้าสู่ระบบ (วัน)
-/* =============================================== */
+/* ===============================================
+ * หมายเหตุ: เมื่อรัน setup() ค่า GOOGLE_CLIENT_ID / ALLOWED_DOMAIN ที่ใส่ไว้ข้างบน
+ * จะถูก "จำ" ไว้ใน Script Properties — ครั้งต่อไปที่วางโค้ดใหม่ทับ (ค่าข้างบนว่าง)
+ * ระบบจะใช้ค่าที่จำไว้ให้เอง ไม่ต้องใส่ใหม่
+ * ต้องการล้างค่าที่จำไว้: รันฟังก์ชัน clearSavedConfig
+ * =============================================== */
 
 const APP_NAME = 'VoltGrid Accounting';
 const FOLDER_NAME = 'AccFlow Data';
@@ -39,6 +44,21 @@ const USER_COLS = [['email', 'อีเมล'], ['firstName', 'ชื่อ'], 
   ['lastLogin', 'เข้าใช้ล่าสุด'], ['approvedBy', 'อนุมัติโดย'], ['companies', 'บริษัทที่เข้าได้']];
 
 const props = () => PropertiesService.getScriptProperties();
+
+/** ค่าตั้งค่า: ใช้ค่าที่ใส่ในโค้ดก่อน ถ้าว่างใช้ค่าที่จำไว้ใน Script Properties */
+function clientId_() { return GOOGLE_CLIENT_ID || props().getProperty('CFG_GOOGLE_CLIENT_ID') || ''; }
+function domain_() { return ALLOWED_DOMAIN || props().getProperty('CFG_ALLOWED_DOMAIN') || ''; }
+function allowPassword_() { return ALLOW_PASSWORD_LOGIN && props().getProperty('CFG_ALLOW_PASSWORD_LOGIN') !== 'false'; }
+function rememberConfig_() {
+  if (GOOGLE_CLIENT_ID) props().setProperty('CFG_GOOGLE_CLIENT_ID', GOOGLE_CLIENT_ID);
+  if (ALLOWED_DOMAIN) props().setProperty('CFG_ALLOWED_DOMAIN', ALLOWED_DOMAIN);
+  if (!ALLOW_PASSWORD_LOGIN) props().setProperty('CFG_ALLOW_PASSWORD_LOGIN', 'false');
+}
+/** ล้างค่าตั้งค่าที่จำไว้ (Client ID / โดเมน / บังคับ Google) แล้วใช้ค่าในโค้ดเท่านั้น */
+function clearSavedConfig() {
+  ['CFG_GOOGLE_CLIENT_ID', 'CFG_ALLOWED_DOMAIN', 'CFG_ALLOW_PASSWORD_LOGIN'].forEach((k) => props().deleteProperty(k));
+  Logger.log('ล้างค่าที่จำไว้แล้ว');
+}
 
 /** รันครั้งแรก / หลังอัปเดตโค้ด: สร้างโฟลเดอร์ ชีต Token และตั้งเวลาสำรองรายวัน */
 function setup() {
@@ -60,7 +80,9 @@ function setup() {
   Logger.log('📊 Sheets: ' + ss.getUrl());
   Logger.log('🏢 บริษัท: ' + companies_().map((c) => c.name).join(', '));
   Logger.log('🔑 API Token (สำหรับกู้คืนระบบ): ' + token);
-  Logger.log('🔐 Google Login: ' + (GOOGLE_CLIENT_ID ? 'เปิด' : 'ปิด (ยังไม่ได้ใส่ GOOGLE_CLIENT_ID)'));
+  rememberConfig_();
+  Logger.log('🔐 Google Login: ' + (clientId_() ? 'เปิด (Client ID: ' + clientId_().slice(0, 12) + '…)' : 'ปิด (ยังไม่ได้ใส่ GOOGLE_CLIENT_ID)'));
+  Logger.log('📧 จำกัดโดเมนอีเมล: ' + (domain_() || 'ไม่จำกัด') + ' · ล็อกอินด้วยรหัสผ่าน: ' + (allowPassword_() ? 'เปิด' : 'ปิด'));
 }
 
 /** สร้าง Token กู้คืนระบบใหม่ */
@@ -138,8 +160,8 @@ function doPost(e) {
 
 /* =================== Auth =================== */
 function config_() {
-  return { ok: true, app: APP_NAME, version: 4, files: true, multiCompany: true, google: !!GOOGLE_CLIENT_ID, clientId: GOOGLE_CLIENT_ID, password: ALLOW_PASSWORD_LOGIN,
-    domain: ALLOWED_DOMAIN, hasUsers: getUsers_().length > 0 };
+  return { ok: true, app: APP_NAME, version: 4, files: true, multiCompany: true, google: !!clientId_(), clientId: clientId_(), password: allowPassword_(),
+    domain: domain_(), hasUsers: getUsers_().length > 0 };
 }
 
 function auth_(req) {
@@ -156,11 +178,11 @@ function auth_(req) {
 }
 
 function verifyGoogle_(idToken) {
-  if (!GOOGLE_CLIENT_ID) throw new Error('ยังไม่ได้เปิดใช้การเข้าสู่ระบบด้วย Google');
+  if (!clientId_()) throw new Error('ยังไม่ได้เปิดใช้การเข้าสู่ระบบด้วย Google');
   const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken), { muteHttpExceptions: true });
   if (res.getResponseCode() !== 200) throw new Error('ยืนยันตัวตนกับ Google ไม่สำเร็จ');
   const t = JSON.parse(res.getContentText());
-  if (t.aud !== GOOGLE_CLIENT_ID) throw new Error('Client ID ไม่ตรงกัน');
+  if (t.aud !== clientId_()) throw new Error('Client ID ไม่ตรงกัน');
   if (String(t.email_verified) !== 'true') throw new Error('อีเมล Google ยังไม่ได้ยืนยัน');
   if (+t.exp * 1000 < Date.now()) throw new Error('การยืนยันตัวตนหมดอายุ กรุณาลองใหม่');
   const email = String(t.email).toLowerCase();
@@ -169,7 +191,8 @@ function verifyGoogle_(idToken) {
 }
 
 function checkDomain_(email) {
-  if (ALLOWED_DOMAIN && !email.endsWith('@' + ALLOWED_DOMAIN.toLowerCase())) throw new Error('อนุญาตเฉพาะอีเมล @' + ALLOWED_DOMAIN);
+  const dom = domain_();
+  if (dom && !email.endsWith('@' + dom.toLowerCase())) throw new Error('อนุญาตเฉพาะอีเมล @' + dom);
 }
 
 function loginGoogle_(req) {
@@ -180,7 +203,7 @@ function loginGoogle_(req) {
 }
 
 function loginPassword_(req) {
-  if (!ALLOW_PASSWORD_LOGIN) throw new Error('ระบบนี้อนุญาตเฉพาะการเข้าสู่ระบบด้วย Google');
+  if (!allowPassword_()) throw new Error('ระบบนี้อนุญาตเฉพาะการเข้าสู่ระบบด้วย Google');
   const email = String(req.email || '').trim().toLowerCase();
   const cache = CacheService.getScriptCache();
   const fails = +(cache.get('fail:' + email) || 0);
@@ -200,7 +223,7 @@ function register_(req) {
   let email, authType;
   if (req.idToken) { email = verifyGoogle_(req.idToken).email; authType = 'google'; }
   else {
-    if (!ALLOW_PASSWORD_LOGIN) throw new Error('กรุณาลงทะเบียนด้วยบัญชี Google');
+    if (!allowPassword_()) throw new Error('กรุณาลงทะเบียนด้วยบัญชี Google');
     email = String(p.email || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('อีเมลไม่ถูกต้อง');
     checkDomain_(email);
