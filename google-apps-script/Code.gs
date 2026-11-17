@@ -180,7 +180,7 @@ function doPost(e) {
       case 'renameCompany': return json_(renameCompany_(req, me));
       case 'removeCompany': return json_(removeCompany_(req, me));
       case 'save': return json_(save_(req, me, cid));
-      case 'load': return json_(load_(cid));
+      case 'load': return json_(load_(cid, req));
       case 'uploadFile': return json_(uploadFile_(req, me, cid));
       case 'getFile': return json_(getFile_(req, cid));
       case 'deleteFile': return json_(deleteFile_(req, me, cid));
@@ -378,7 +378,7 @@ let USERS_CACHE = null;
 let USER_SH = null;
 
 /* ---------- ที่เก็บข้อมูลผู้ใช้: ไฟล์ JSON ใน Google Drive ---------- */
-function usersFile_() { const it = getFolder_().getFilesByName(USERS_FILE); return it.hasNext() ? it.next() : null; }
+function usersFile_() { return fileIn_('USERS_FILE_ID', getFolder_, USERS_FILE); }
 function normUser_(r) {
   const o = {}; USER_COLS.forEach((c) => (o[c[0]] = String(r[c[0]] === undefined || r[c[0]] === null ? '' : r[c[0]])));
   o.email = o.email.toLowerCase();
@@ -387,8 +387,12 @@ function normUser_(r) {
 function writeUsersFile_(list) {
   const clean = list.map((u) => { const o = normUser_(u); delete o.lastLogin; return o; });   // เวลาเข้าใช้ล่าสุดเก็บใน Script Properties
   const content = JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), users: clean });
-  const f = usersFile_();
-  if (f) f.setContent(content); else getFolder_().createFile(USERS_FILE, content, MimeType.PLAIN_TEXT);
+  retry_(() => {
+    const f = usersFile_();
+    if (f) f.setContent(content);
+    else { const nf = getFolder_().createFile(USERS_FILE, content, MimeType.PLAIN_TEXT); props().setProperty('USERS_FILE_ID', nf.getId()); }
+  });
+  try { CacheService.getScriptCache().put('users_v1', content, 21600); } catch (e) { /* noop */ }
 }
 /** ย้ายผู้ใช้จากชีตเดิม (ครั้งแรกเท่านั้น) — ถ้าอ่านไม่ได้ ให้ error แทนการสร้างไฟล์ว่าง (กันคนอื่นได้สิทธิ์ผู้ดูแลระบบ) */
 function readUsersFromSheet_() {
@@ -402,10 +406,15 @@ function readUsersFromSheet_() {
 }
 function getUsers_() {
   if (USERS_CACHE) return USERS_CACHE;
-  const f = usersFile_();
-  let list;
-  if (f) list = (JSON.parse(f.getBlob().getDataAsString() || '{}').users || []).map(normUser_);
-  else {
+  let list = null;
+  try { const c = CacheService.getScriptCache().get('users_v1'); if (c) list = (JSON.parse(c).users || []).map(normUser_); } catch (e) { list = null; }
+  const f = list ? null : usersFile_();
+  if (list) { /* จาก cache */ }
+  else if (f) {
+    const content = retry_(() => f.getBlob().getDataAsString());
+    list = (JSON.parse(content || '{}').users || []).map(normUser_);
+    try { CacheService.getScriptCache().put('users_v1', content, 21600); } catch (e) { /* noop */ }
+  } else {
     list = readUsersFromSheet_();
     writeUsersFile_(list);
     try { Logger.log('👥 ย้ายข้อมูลผู้ใช้ ' + list.length + ' คน ไปเก็บในไฟล์ ' + USERS_FILE + ' แล้ว'); } catch (e) { /* noop */ }
@@ -584,7 +593,7 @@ function removeCompany_(req, me) {
 /* ---------- ที่เก็บข้อมูลของแต่ละบริษัท ---------- */
 function coFolder_(cid) {
   const id = props().getProperty('C:' + cid + ':FOLDER_ID');
-  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* fallthrough */ } }
+  if (id) return folderById_(id);
   if (cid === 'main') return getFolder_();   // ยังไม่ได้ย้ายเข้าโฟลเดอร์ย่อย (ยังไม่ได้รัน setup)
   throw new Error('ไม่พบโฟลเดอร์ของบริษัท');
 }
@@ -592,11 +601,11 @@ function coSub_(cid, name) {
   const f = coFolder_(cid); const it = f.getFoldersByName(name);
   return it.hasNext() ? it.next() : f.createFolder(name);
 }
-function coDataFile_(cid) { const it = coFolder_(cid).getFilesByName(DATA_FILE); return it.hasNext() ? it.next() : null; }
+function coDataFile_(cid) { return fileIn_('C:' + cid + ':DATA_ID', () => coFolder_(cid), DATA_FILE); }
 function coSheet_(cid) {
   if (cid === 'main') return getSpreadsheet_();
   const k = 'C:' + cid + ':SHEET_ID'; const id = props().getProperty(k);
-  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { /* recreate */ } }
+  if (id) return retry_(() => SpreadsheetApp.openById(id));
   const ss = SpreadsheetApp.create(safeName_(company_(cid).name) + ' — Database');
   DriveApp.getFileById(ss.getId()).moveTo(coFolder_(cid));
   props().setProperty(k, ss.getId());
@@ -616,13 +625,18 @@ function migrateMainFolder_() {
 }
 
 /* =================== Data =================== */
+function verKey_(cid) { return 'C:' + cid + ':VER'; }
 function save_(req, me, cid) {
   if (!req.data || !req.data.accounts) throw new Error('ไม่มีข้อมูล');
   const file = coDataFile_(cid);
   if (file && !req.force) {
-    const cur = JSON.parse(file.getBlob().getDataAsString());
-    const curVer = (cur.meta && cur.meta.syncedAt) || '';
-    if (curVer && req.baseVersion !== curVer) return { ok: false, conflict: true, data: cur };
+    const knownVer = props().getProperty(verKey_(cid));
+    if (!knownVer || req.baseVersion !== knownVer) {   // อ่านไฟล์เฉพาะเมื่อจำเป็น
+      const cur = JSON.parse(retry_(() => file.getBlob().getDataAsString()));
+      const curVer = (cur.meta && cur.meta.syncedAt) || '';
+      if (curVer) props().setProperty(verKey_(cid), curVer);
+      if (curVer && req.baseVersion !== curVer) return { ok: false, conflict: true, data: cur };
+    }
   }
   const savedAt = new Date().toISOString();
   const clean = JSON.parse(JSON.stringify(req.data));
@@ -632,18 +646,25 @@ function save_(req, me, cid) {
   delete clean.meta.dirty;
   if (clean.settings) { delete clean.settings.gasToken; delete clean.settings.gasUrl; }
   const content = JSON.stringify(clean);
-  if (file) file.setContent(content);
-  else coFolder_(cid).createFile(DATA_FILE, content, MimeType.PLAIN_TEXT);
+  retry_(() => {
+    if (file) file.setContent(content);
+    else { const nf = coFolder_(cid).createFile(DATA_FILE, content, MimeType.PLAIN_TEXT); props().setProperty('C:' + cid + ':DATA_ID', nf.getId()); }
+  });
+  props().setProperty(verKey_(cid), savedAt);
   let warning;
   if (req.tables) { try { writeTables_(req.tables, coSheet_(cid)); } catch (e) { warn_('อัปเดตตาราง Google Sheets', e); warning = 'บันทึกข้อมูลแล้ว แต่อัปเดตตาราง Google Sheets ไม่สำเร็จ: ' + e.message; } }
   if (req.activity && req.activity.length) logRows_(me, req.activity, company_(cid).name);
   return { ok: true, savedAt: savedAt, size: content.length, warning: warning };
 }
 
-function load_(cid) {
+function load_(cid, req) {
+  const ver = props().getProperty(verKey_(cid));
+  if (req && req.since && ver && req.since === ver) return { ok: true, unchanged: true, version: ver };   // ไม่มีอะไรเปลี่ยน — ไม่ต้องแตะ Drive
   const file = coDataFile_(cid);
   if (!file) return { ok: true, data: null };
-  return { ok: true, data: JSON.parse(file.getBlob().getDataAsString()) };
+  const data = JSON.parse(retry_(() => file.getBlob().getDataAsString()));
+  if (data.meta && data.meta.syncedAt && data.meta.syncedAt !== ver) props().setProperty(verKey_(cid), data.meta.syncedAt);
+  return { ok: true, data: data };
 }
 
 function backup_(kind, cid) {
@@ -675,6 +696,7 @@ function restore_(id, cid) {
   data.meta = data.meta || {};
   data.meta.syncedAt = new Date().toISOString();
   coDataFile_(cid).setContent(JSON.stringify(data));
+  props().setProperty(verKey_(cid), data.meta.syncedAt);
   return { ok: true, data: data };
 }
 
@@ -751,9 +773,29 @@ function writeTables_(tables, ss) {
 
 /* =================== helpers =================== */
 /** โฟลเดอร์หลักของระบบ (AccFlow Data) — โฟลเดอร์ของแต่ละบริษัทอยู่ข้างใน */
+/* ---------- เปิดไฟล์/โฟลเดอร์ด้วย ID (จำไว้ใน Script Properties) ----------
+ * ถ้ามี ID อยู่แล้วแต่เปิดไม่ได้ จะ “ลองใหม่” — ไม่สร้างไฟล์/โฟลเดอร์ใหม่ทับ (กันข้อมูลแยกเป็นสองชุด)
+ * ใช้การค้นหาตามชื่อเฉพาะครั้งแรกที่ยังไม่มี ID เท่านั้น */
+const DRIVE_C = {};
+function folderById_(id) { if (!DRIVE_C['F' + id]) DRIVE_C['F' + id] = retry_(() => DriveApp.getFolderById(id)); return DRIVE_C['F' + id]; }
+function fileById_(id) { if (!DRIVE_C['f' + id]) DRIVE_C['f' + id] = retry_(() => DriveApp.getFileById(id)); return DRIVE_C['f' + id]; }
+/** ไฟล์ชื่อ name ในโฟลเดอร์ (จำ ID ไว้ที่ key) — คืน null ถ้ายังไม่มีไฟล์ */
+function fileIn_(key, folderFn, name) {
+  const id = props().getProperty(key);
+  if (id) {
+    let f = null;
+    try { f = fileById_(id); } catch (e) { if (!/not found|ไม่พบ|does not exist|ไม่มีอยู่/i.test(String(e.message))) throw e; }
+    if (f && !f.isTrashed()) return f;
+    props().deleteProperty(key); delete DRIVE_C['f' + id];
+  }
+  const it = retry_(() => folderFn().getFilesByName(name));
+  if (!it.hasNext()) return null;
+  const f = it.next(); props().setProperty(key, f.getId()); DRIVE_C['f' + f.getId()] = f;
+  return f;
+}
 function getFolder_() {
   const id = props().getProperty('FOLDER_ID');
-  if (id) { try { return DriveApp.getFolderById(id); } catch (e) { /* recreate */ } }
+  if (id) return folderById_(id);
   const it = DriveApp.getFoldersByName(FOLDER_NAME);
   const f = it.hasNext() ? it.next() : DriveApp.createFolder(FOLDER_NAME);
   props().setProperty('FOLDER_ID', f.getId());
@@ -764,7 +806,7 @@ let SS_CACHE = null;   // เปิดไฟล์ Sheets ครั้งเด�
 function getSpreadsheet_() {
   if (SS_CACHE) return SS_CACHE;
   const id = props().getProperty('SHEET_ID');
-  if (id) { try { SS_CACHE = SpreadsheetApp.openById(id); return SS_CACHE; } catch (e) { /* recreate */ } }
+  if (id) { SS_CACHE = retry_(() => SpreadsheetApp.openById(id)); return SS_CACHE; }
   const ss = SpreadsheetApp.create(SHEET_NAME);
   DriveApp.getFileById(ss.getId()).moveTo(getFolder_());
   props().setProperty('SHEET_ID', ss.getId());
@@ -787,7 +829,7 @@ function retry_(fn, tries) {
     try { return fn(); }
     catch (e) {
       const msg = String((e && e.message) || e);
-      const transient = /permission|สิทธิ์|access the requested|เข้าถึงเอกสาร|Service|บริการ|timed out|หมดเวลา|try again|ลองอีกครั้ง|internal error|ข้อผิดพลาดภายใน/i.test(msg);
+      const transient = /permission|สิทธิ์|access the requested|เข้าถึงเอกสาร|Service|บริการ|timed out|หมดเวลา|try again|ลองอีกครั้ง|internal error|ข้อผิดพลาดภายใน|limit exceeded|เกินขีดจำกัด|rate limit|too many|บ่อยเกินไป/i.test(msg);
       if (!transient || i >= tries - 1) throw e;
       warn_('Sheets (ลองใหม่ครั้งที่ ' + (i + 1) + ')', e);
       try { SpreadsheetApp.flush(); } catch (e2) { /* noop */ }

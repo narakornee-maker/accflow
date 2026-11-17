@@ -409,10 +409,16 @@ const Sync = {
     if (this.enabled()) await this.push({ sheets: true, force: true });
   },
 
-  async pull() {
+  /** ดึงข้อมูล — ส่งเวอร์ชันที่มีอยู่ไปด้วย ถ้าไม่มีอะไรเปลี่ยน เซิร์ฟเวอร์ตอบสั้นๆ โดยไม่แตะ Drive */
+  async pull({ full = false } = {}) {
     this.setStatus('syncing');
-    try { const r = await this.call('load'); this.setStatus('idle'); return r.data || null; }
-    catch (e) { this.setStatus('error', e.message); throw e; }
+    try {
+      const since = full ? '' : (Store.state.meta.syncedAt || '');
+      const r = await this.call('load', since ? { since } : {});
+      this.setStatus(Store.state.meta.dirty ? 'pending' : 'idle');
+      if (r.unchanged) return { __unchanged: true };
+      return r.data || null;
+    } catch (e) { this.setStatus('error', e.message); throw e; }
   },
 
   /** ดึงข้อมูลล่าสุดของทีม: รวมกับงานที่ยังไม่ได้ซิงก์ในเครื่อง */
@@ -420,6 +426,7 @@ const Sync = {
     if (!this.enabled() || this.busy) return;
     try {
       const remote = await this.pull();
+      if (remote && remote.__unchanged) { if (Store.state.meta.dirty) await this.push(); else if (!quiet) U.toast('ข้อมูลเป็นปัจจุบันแล้ว', 'info'); return; }
       if (!remote) { if (Store.state.meta.dirty || Store.state.documents.length) await this.push({ sheets: true }); return; }
       const rv = (remote.meta && remote.meta.syncedAt) || '';
       if (rv === Store.state.meta.syncedAt) { if (Store.state.meta.dirty) await this.push(); return; }
@@ -444,7 +451,7 @@ const Sync = {
 
   startPolling() {
     clearInterval(this.poll);
-    this.poll = setInterval(() => { if (!document.hidden) this.refresh(); }, 90000);
+    this.poll = setInterval(() => { if (!document.hidden) this.refresh(); }, 120000);
     window.addEventListener('focus', U.debounce(() => this.refresh(), 1000));
   },
 };
