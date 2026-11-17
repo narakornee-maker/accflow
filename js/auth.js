@@ -179,21 +179,23 @@ const Auth = {
 
   /* ----- views ----- */
   v_setup() {
-    return `<h1>เชื่อมต่อเซิร์ฟเวอร์</h1><p class="auth-lead">ตั้งค่าครั้งแรกบนเครื่องนี้ — ใส่ Web App URL ของ Google Apps Script</p>
+    return `<h1>เชื่อมต่อเซิร์ฟเวอร์</h1><p class="auth-lead">ใส่ Web App URL ของ Google Apps Script — คัดลอกจาก Apps Script → การทำให้ใช้งานได้ → จัดการการทำให้ใช้งานได้ → URL ของเว็บแอป (ลงท้ายด้วย /exec)</p>
       <form id="f-setup" class="auth-fields">
         <div class="field"><label>Web App URL</label><input name="gasUrl" required placeholder="https://script.google.com/macros/s/…/exec" value="${U.esc(Conn.get().gasUrl || '')}"></div>
         <div class="auth-err" id="auth-err"></div>
         <button class="btn btn-primary auth-btn" type="submit">${U.icon('plug-zap')}เชื่อมต่อ</button>
       </form>
-      <p class="auth-note">พนักงาน: ขอ “ลิงก์เข้าใช้งาน” จากผู้ดูแลระบบ เปิดลิงก์นั้นแล้วระบบจะตั้งค่าให้อัตโนมัติ</p>`;
+      <p class="auth-note">พนักงาน: ขอ “ลิงก์เข้าใช้งาน” จากผู้ดูแลระบบ เปิดลิงก์นั้นแล้วระบบจะตั้งค่าให้อัตโนมัติ</p>
+      ${Conn.get().gasUrl ? '<p class="auth-note"><a href="#" data-go="login">← กลับไปหน้าเข้าสู่ระบบ</a></p>' : ''}`;
   },
   b_setup(root) {
+    this.bindCommon(root);
     root.querySelector('#f-setup').onsubmit = async (e) => {
       e.preventDefault();
       const url = e.target.gasUrl.value.trim();
       if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) return this.err('URL ต้องขึ้นต้นด้วย https://script.google.com/macros/s/ และลงท้ายด้วย /exec');
       this.busy(e.submitter, true);
-      try { this.cfg = await Sync.call('config', {}, { url }); Conn.set({ gasUrl: url }); this.show('login'); }
+      try { this.cfg = await Sync.call('config', {}, { url }); Conn.set({ gasUrl: url }); U.toast('เชื่อมต่อเซิร์ฟเวอร์แล้ว'); this.show('login'); }
       catch (er) { this.busy(e.submitter, false); this.err(er.message.includes('unknown action') ? 'Apps Script ยังเป็นโค้ดเวอร์ชันเก่า กรุณาอัปเดต Code.gs แล้ว Deploy เวอร์ชันใหม่' : er.message); }
     };
   },
@@ -223,7 +225,8 @@ const Auth = {
         <button class="btn btn-primary auth-btn" type="submit">เข้าสู่ระบบ</button>
       </form>` : ''}
       ${c.domain ? `<p class="auth-note">${U.icon('shield-check')} ใช้ได้เฉพาะอีเมล @${U.esc(c.domain)}</p>` : ''}
-      <p class="auth-note">พนักงานใหม่: <a href="#" data-go="register">ลงทะเบียน</a> แล้วรอผู้ดูแลระบบอนุมัติ</p>`;
+      <p class="auth-note">พนักงานใหม่: <a href="#" data-go="register">ลงทะเบียน</a> แล้วรอผู้ดูแลระบบอนุมัติ</p>
+      ${this.serverNote()}`;
   },
   b_login(root) {
     this.bindCommon(root);
@@ -301,7 +304,21 @@ const Auth = {
       requestAnimationFrame(step);
     });
   },
-  err(msg) { const el = document.getElementById('auth-err'); if (el) { el.textContent = msg; el.classList.add('show'); } },
+  err(msg) {
+    const el = document.getElementById('auth-err'); if (!el) return;
+    el.textContent = msg; el.classList.add('show');
+    if (/เชื่อมต่อเซิร์ฟเวอร์ไม่ได้/.test(msg)) {
+      const a = document.createElement('a'); a.href = '#'; a.textContent = ' → ตรวจสอบ / เปลี่ยน URL เซิร์ฟเวอร์'; a.style.fontWeight = '600';
+      a.onclick = (e) => { e.preventDefault(); this.show('setup'); };
+      el.appendChild(a);
+    }
+  },
+  /** แสดงว่าหน้าเว็บเชื่อมต่อกับเซิร์ฟเวอร์ตัวไหน (รหัสท้าย URL) */
+  serverNote() {
+    const u = Conn.get().gasUrl || '';
+    const id = (u.match(/\/s\/([^/]+)\/exec/) || [])[1] || '';
+    return `<p class="auth-note small" style="font-size:11.5px;opacity:.8">${U.icon('server')} เซิร์ฟเวอร์: …${U.esc(id.slice(-10))} · <a href="#" data-go="setup">เปลี่ยน</a></p>`;
+  },
   busy(btn, on) {
     if (!btn) return;
     if (on) { btn.dataset.html = btn.innerHTML; btn.disabled = true; btn.innerHTML = `${U.icon('loader-2', 'spin-ic')} กำลังดำเนินการ…`; U.refreshIcons(); }
