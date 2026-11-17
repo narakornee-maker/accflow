@@ -18,7 +18,7 @@
  */
 
 /* =================== ตั้งค่า =================== */
-const GOOGLE_CLIENT_ID = '';        // OAuth Client ID (…apps.googleusercontent.com) เพื่อเปิด "เข้าสู่ระบบด้วย Google"
+const GOOGLE_CLIENT_ID = '423952598920-i3bh3g3o2fq277bdb8fidbofra5ho14n.apps.googleusercontent.com';  // OAuth Client ID (…apps.googleusercontent.com) เพื่อเปิด "เข้าสู่ระบบด้วย Google"
 const ALLOWED_DOMAIN = '';          // เช่น 'voltgrid.co.th' = รับเฉพาะอีเมลโดเมนนี้ (เว้นว่าง = ทุกอีเมล)
 const ALLOW_PASSWORD_LOGIN = true;  // false = บังคับเข้าสู่ระบบด้วย Google เท่านั้น
 const SESSION_DAYS = 7;             // อายุการเข้าสู่ระบบ (วัน)
