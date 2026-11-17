@@ -38,6 +38,7 @@ const DATA_FILE = 'accflow-data.json';
 const SHEET_NAME = 'AccFlow Database';
 const USER_SHEET = 'ผู้ใช้งาน';
 const LOG_SHEET = 'ประวัติการใช้งาน';
+const USERS_FILE = 'accflow-users.json';   // ที่เก็บข้อมูลผู้ใช้หลัก (ชีต “ผู้ใช้งาน” เป็นสำเนาไว้ดู)
 const KEEP_BACKUPS = 60;
 const USER_COLS = [['email', 'อีเมล'], ['firstName', 'ชื่อ'], ['lastName', 'นามสกุล'], ['phone', 'เบอร์โทร'], ['birthDate', 'วันเกิด'],
   ['position', 'ตำแหน่ง'], ['role', 'สิทธิ์'], ['status', 'สถานะ'], ['authType', 'วิธีเข้าสู่ระบบ'], ['createdAt', 'ลงทะเบียนเมื่อ'],
@@ -64,10 +65,13 @@ function clearSavedConfig() {
 function setup() {
   const folder = getFolder_();
   const ss = getSpreadsheet_();
+  const users = getUsers_();   // ย้ายผู้ใช้จากชีตเดิมไปไฟล์ใน Drive (ครั้งแรก)
+  Logger.log('👥 ผู้ใช้งาน ' + users.length + ' คน — เก็บในไฟล์ ' + USERS_FILE + ' (ชีต “ผู้ใช้งาน” เป็นสำเนา)');
+  mirrorUsers_();
   upgradeHeaders_();
   try { migrateMainFolder_(); } catch (e) { Logger.log('⚠️ ย้ายโฟลเดอร์บริษัทหลักไม่สำเร็จ (ระบบยังใช้งานได้ตามเดิม): ' + e); }
   companies_().forEach((c) => { try { coSub_(c.id, BACKUP_FOLDER_NAME); coSub_(c.id, ATTACH_FOLDER_NAME); } catch (e) { /* noop */ } });
-  userSheet_(); logSheet_();
+  try { userSheet_(); logSheet_(); } catch (e) { Logger.log('ℹ️ เตรียมชีตสำเนาไม่สำเร็จ (ไม่กระทบการทำงาน): ' + e.message); }
   let token = props().getProperty('API_TOKEN');
   if (!token) {
     token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
@@ -98,13 +102,12 @@ function diagnose() {
   Logger.log('— เจ้าของสคริปต์ / ผู้ที่กำลังกด Run: ' + Session.getActiveUser().getEmail());
   step('โฟลเดอร์หลัก (AccFlow Data)', () => { const f = getFolder_(); return f.getName() + ' — เจ้าของ ' + f.getOwner().getEmail(); });
   step('Google Sheets กลาง', () => { const ss = getSpreadsheet_(); return ss.getName() + ' — ' + ss.getUrl(); });
-  step('ชีตผู้ใช้งาน', () => (getUsers_().length) + ' คน: ' + getUsers_().map((u) => u.email + ' (' + u.role + '/' + u.status + ')').join(', '));
+  step('ข้อมูลผู้ใช้ (ไฟล์ ' + USERS_FILE + ')', () => { const f = usersFile_(); return (f ? 'มีไฟล์ ' + (f.getSize() / 1024).toFixed(1) + ' KB · ' : 'ยังไม่มีไฟล์ (จะย้ายจากชีตให้อัตโนมัติ) · ') + getUsers_().length + ' คน: ' + getUsers_().map((u) => u.email + ' (' + u.role + '/' + u.status + ')').join(', '); });
   step('ชีตประวัติการใช้งาน (อ่าน)', () => logSheet_().getLastRow() + ' แถว, ' + logSheet_().getMaxColumns() + ' คอลัมน์');
   step('ชีตประวัติการใช้งาน (เขียน)', () => { logRowsUnsafe_({ email: 'diagnose', firstName: 'ทดสอบระบบ', lastName: '' }, [{ action: 'diagnose', detail: 'ทดสอบการเขียน' }], ''); return 'เขียนได้'; });
-  step('ชีตผู้ใช้งาน (เขียนแถวข้อมูล — แบบที่ระบบใช้จริง)', () => { const u = getUsers_()[0]; if (!u) return 'ยังไม่มีผู้ใช้ ข้าม'; saveUser_(u); return 'เขียนได้'; });
-  try { const sh = userSheet_(); const v = sh.getRange(1, 1).getValues(); sh.getRange(1, 1).setValues(v); Logger.log('ℹ️ แถวหัวตารางชีตผู้ใช้งาน: เขียนได้'); }
-  catch (e) { Logger.log('ℹ️ แถวหัวตารางชีตผู้ใช้งาน: เข้าถึงไม่ได้ (' + e.message + ') — ระบบไม่ใช้ส่วนนี้แล้ว ไม่กระทบการทำงาน'); }
-  step('ชนิดชีตผู้ใช้งาน', () => { const sh = userSheet_(); let t = ''; try { t = String(sh.getType()); } catch (e) { t = '?'; } return 'type=' + t + ' · แถวที่ตรึง ' + sh.getFrozenRows() + ' · ขนาด ' + sh.getMaxRows() + '×' + sh.getMaxColumns(); });
+  step('ข้อมูลผู้ใช้ (เขียนไฟล์ — แบบที่ระบบใช้จริง)', () => { const u = getUsers_()[0]; if (!u) return 'ยังไม่มีผู้ใช้ ข้าม'; writeUsersFile_(getUsers_()); return 'เขียนได้'; });
+  try { const sh = userSheet_(); const rows = getUsers_().map((u) => USER_COLS.map((c) => String(u[c[0]] || ''))); if (rows.length) sh.getRange(2, 1, rows.length, USER_COLS.length).setValues(rows); Logger.log('ℹ️ สำเนาชีตผู้ใช้งาน: อัปเดตได้'); }
+  catch (e) { Logger.log('ℹ️ สำเนาชีตผู้ใช้งาน: อัปเดตไม่ได้ (' + e.message + ') — เป็นแค่สำเนาไว้ดู ไม่กระทบการทำงาน'); }
   step('การป้องกันชีต (Protection)', () => { const ss = getSpreadsheet_(); const p = ss.getProtections(SpreadsheetApp.ProtectionType.SHEET).concat(ss.getProtections(SpreadsheetApp.ProtectionType.RANGE)); return p.length ? p.length + ' รายการ: ' + p.map((x) => { try { return (x.getRange().getSheet().getName()) + ' (แก้ได้: ' + x.getEditors().map((e) => e.getEmail()).join(', ') + ')'; } catch (e) { return '?'; } }).join('; ') : 'ไม่มี'; });
   step('สิทธิ์ใน Google Sheets กลาง', () => { const f = DriveApp.getFileById(getSpreadsheet_().getId()); return 'เจ้าของ ' + f.getOwner().getEmail() + ' · ผู้แก้ไข: ' + (f.getEditors().map((e) => e.getEmail()).join(', ') || '-'); });
   let list = [];
@@ -337,9 +340,9 @@ function updateUser_(req, me) {
 function deleteUser_(req, me) {
   const email = String(req.email || '').toLowerCase();
   if (email === me.email) throw new Error('ลบบัญชีตัวเองไม่ได้');
-  const sh = userSheet_(); const rows = sh.getDataRange().getValues();
-  for (let i = rows.length - 1; i >= 1; i--) if (String(rows[i][0]).toLowerCase() === email) sh.deleteRow(i + 1);
-  props().deleteProperty('pw:' + email); revokeSessions_(email); USERS_CACHE = null;
+  if (!findUser_(email)) throw new Error('ไม่พบผู้ใช้');
+  removeUser_(email);
+  props().deleteProperty('pw:' + email); props().deleteProperty('last:' + email); revokeSessions_(email);
   log_(me, 'ลบผู้ใช้', email);
   return { ok: true };
 }
@@ -373,6 +376,60 @@ function hash_(password, salt) {
 /* =================== Users sheet =================== */
 let USERS_CACHE = null;
 let USER_SH = null;
+
+/* ---------- ที่เก็บข้อมูลผู้ใช้: ไฟล์ JSON ใน Google Drive ---------- */
+function usersFile_() { const it = getFolder_().getFilesByName(USERS_FILE); return it.hasNext() ? it.next() : null; }
+function normUser_(r) {
+  const o = {}; USER_COLS.forEach((c) => (o[c[0]] = String(r[c[0]] === undefined || r[c[0]] === null ? '' : r[c[0]])));
+  o.email = o.email.toLowerCase();
+  return o;
+}
+function writeUsersFile_(list) {
+  const clean = list.map((u) => { const o = normUser_(u); delete o.lastLogin; return o; });   // เวลาเข้าใช้ล่าสุดเก็บใน Script Properties
+  const content = JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), users: clean });
+  const f = usersFile_();
+  if (f) f.setContent(content); else getFolder_().createFile(USERS_FILE, content, MimeType.PLAIN_TEXT);
+}
+/** ย้ายผู้ใช้จากชีตเดิม (ครั้งแรกเท่านั้น) — ถ้าอ่านไม่ได้ ให้ error แทนการสร้างไฟล์ว่าง (กันคนอื่นได้สิทธิ์ผู้ดูแลระบบ) */
+function readUsersFromSheet_() {
+  let sh = null;
+  try { sh = getSpreadsheet_().getSheetByName(USER_SHEET); } catch (e) { throw new Error('ย้ายข้อมูลผู้ใช้จาก Google Sheets ไม่สำเร็จ: ' + e.message + ' — ลองใหม่อีกครั้ง หรือรัน setup'); }
+  if (!sh) return [];
+  let rows;
+  try { rows = retry_(() => sh.getDataRange().getValues(), 5); }
+  catch (e) { throw new Error('ย้ายข้อมูลผู้ใช้จาก Google Sheets ไม่สำเร็จ: ' + e.message + ' — ลองใหม่อีกครั้ง หรือรัน setup'); }
+  return rows.slice(1).filter((r) => r[0]).map((r) => { const o = {}; USER_COLS.forEach((c, i) => (o[c[0]] = r[i])); return normUser_(o); });
+}
+function getUsers_() {
+  if (USERS_CACHE) return USERS_CACHE;
+  const f = usersFile_();
+  let list;
+  if (f) list = (JSON.parse(f.getBlob().getDataAsString() || '{}').users || []).map(normUser_);
+  else {
+    list = readUsersFromSheet_();
+    writeUsersFile_(list);
+    try { Logger.log('👥 ย้ายข้อมูลผู้ใช้ ' + list.length + ' คน ไปเก็บในไฟล์ ' + USERS_FILE + ' แล้ว'); } catch (e) { /* noop */ }
+  }
+  list.forEach((u) => { const ll = props().getProperty('last:' + u.email); if (ll) u.lastLogin = ll; });
+  USERS_CACHE = list;
+  return USERS_CACHE;
+}
+function findUser_(email) { email = String(email || '').toLowerCase(); return getUsers_().find((u) => u.email === email) || null; }
+function saveUser_(u) {
+  const list = getUsers_();
+  const o = normUser_(u);
+  const i = list.findIndex((x) => x.email === o.email);
+  if (i >= 0) list[i] = o; else list.push(o);
+  writeUsersFile_(list);
+  mirrorUsers_();
+}
+function removeUser_(email) {
+  USERS_CACHE = getUsers_().filter((x) => x.email !== email);
+  writeUsersFile_(USERS_CACHE);
+  mirrorUsers_();
+}
+
+/* ---------- สำเนาในชีต “ผู้ใช้งาน” (ไว้ดูเท่านั้น — ถ้าเขียนไม่ได้ไม่เป็นไร) ---------- */
 function userSheet_() {
   if (USER_SH) return USER_SH;
   const ss = getSpreadsheet_();
@@ -383,31 +440,17 @@ function userSheet_() {
     sh.getRange(1, 1, 1, USER_COLS.length).setValues([USER_COLS.map((c) => c[1])]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     sh.setFrozenRows(1);
   }
-  // หมายเหตุ: ไม่อ่าน/เขียนแถวหัวตาราง (แถว 1) ทีละช่อง — บางชีตปฏิเสธการเข้าถึงส่วนนี้
   USER_SH = sh;
   return sh;
 }
-function getUsers_() {
-  if (USERS_CACHE) return USERS_CACHE;
-  const rows = retry_(() => userSheet_().getDataRange().getValues());
-  USERS_CACHE = rows.slice(1).filter((r) => r[0]).map((r) => { const o = {}; USER_COLS.forEach((c, i) => (o[c[0]] = String(r[i] === undefined ? '' : r[i]))); o.email = o.email.toLowerCase(); const ll = props().getProperty('last:' + o.email); if (ll) o.lastLogin = ll; return o; });
-  return USERS_CACHE;
-}
-function findUser_(email) { email = String(email || '').toLowerCase(); return getUsers_().find((u) => u.email === email) || null; }
-function saveUser_(u) {
-  const row = USER_COLS.map((c) => String(u[c[0]] === undefined ? '' : u[c[0]]));
-  retry_(() => {
-    const sh = userSheet_(); const rows = sh.getDataRange().getValues();
-    let idx = -1;
-    for (let i = 1; i < rows.length; i++) if (String(rows[i][0]).toLowerCase() === u.email) { idx = i; break; }
-    if (idx >= 0) sh.getRange(idx + 1, 1, 1, row.length).setValues([row]);
-    else { const r = Math.max(sh.getLastRow(), 1) + 1; sh.getRange(r, 1, 1, row.length).setNumberFormat('@').setValues([row]); }
-  });
-  if (USERS_CACHE) {   // อัปเดตในหน่วยความจำ ไม่ต้องอ่านชีตซ้ำ
-    const o = {}; USER_COLS.forEach((c, i) => (o[c[0]] = row[i])); o.email = String(o.email).toLowerCase();
-    const i = USERS_CACHE.findIndex((x) => x.email === o.email);
-    if (i >= 0) USERS_CACHE[i] = o; else USERS_CACHE.push(o);
-  }
+function mirrorUsers_() {
+  try {
+    const sh = userSheet_();
+    const rows = getUsers_().map((u) => USER_COLS.map((c) => String(u[c[0]] || '')));
+    if (rows.length) sh.getRange(2, 1, rows.length, USER_COLS.length).setNumberFormat('@').setValues(rows);
+    const extra = sh.getLastRow() - 1 - rows.length;
+    if (extra > 0) sh.getRange(rows.length + 2, 1, extra, USER_COLS.length).clearContent();
+  } catch (e) { warn_('อัปเดตสำเนาชีตผู้ใช้งาน', e); }
 }
 function publicUser_(u) { const o = {}; USER_COLS.forEach((c) => (o[c[0]] = u[c[0]] || '')); return o; }
 
@@ -419,7 +462,7 @@ function upgradeHeaders_() {
       if (cur.join('|') !== headers.join('|')) sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     } catch (e) { Logger.log('ℹ️ ข้ามการปรับหัวคอลัมน์ชีต “' + sh.getName() + '”: ' + e.message + ' (ไม่กระทบการทำงาน)'); }
   };
-  fix(userSheet_(), USER_COLS.map((c) => c[1]));
+  try { fix(userSheet_(), USER_COLS.map((c) => c[1])); } catch (e) { /* noop */ }
   fix(logSheet_(), ['เวลา', 'อีเมล', 'ชื่อ', 'การกระทำ', 'รายละเอียด', 'บริษัท']);
 }
 
