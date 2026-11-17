@@ -454,7 +454,7 @@ body.auth-mode .app { display: none; }
 .auth-google { display: flex; justify-content: center; min-height: 44px; align-items: center; }
 .auth-or { display: flex; align-items: center; gap: 12px; color: var(--muted-2); font-size: 12.5px; }
 .auth-or::before, .auth-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-.auth-err { display: none; background: var(--danger-50); color: #991b1b; border: 1px solid #fecaca; border-radius: 10px; padding: 9px 12px; font-size: 13.5px; }
+.auth-err { white-space: pre-line; word-break: break-word; display: none; background: var(--danger-50); color: #991b1b; border: 1px solid #fecaca; border-radius: 10px; padding: 9px 12px; font-size: 13.5px; }
 .auth-err.show { display: block; animation: aShake .35s; }
 .auth-note { font-size: 13px; color: var(--muted); margin: 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .auth-note .ic { width: 15px; height: 15px; color: var(--primary); }

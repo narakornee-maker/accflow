@@ -86,6 +86,32 @@ function setup() {
 }
 
 /** สร้าง Token กู้คืนระบบใหม่ */
+/**
+ * ตรวจหาสาเหตุเมื่อระบบใช้งานไม่ได้ — เลือกฟังก์ชันนี้แล้วกด Run ดูผลใน Execution log
+ * แต่ละขั้นจะขึ้น ✅ หรือ ❌ พร้อมสาเหตุ
+ */
+function diagnose() {
+  const ok = (m) => Logger.log('✅ ' + m), bad = (m, e) => Logger.log('❌ ' + m + ' → ' + ((e && e.message) || e));
+  const step = (name, fn) => { try { const r = fn(); ok(name + (r ? ': ' + r : '')); return true; } catch (e) { bad(name, e); return false; } };
+  Logger.log('— บัญชีที่สคริปต์ทำงาน: ' + Session.getEffectiveUser().getEmail());
+  Logger.log('— เจ้าของสคริปต์ / ผู้ที่กำลังกด Run: ' + Session.getActiveUser().getEmail());
+  step('โฟลเดอร์หลัก (AccFlow Data)', () => { const f = getFolder_(); return f.getName() + ' — เจ้าของ ' + f.getOwner().getEmail(); });
+  step('Google Sheets กลาง', () => { const ss = getSpreadsheet_(); return ss.getName() + ' — ' + ss.getUrl(); });
+  step('ชีตผู้ใช้งาน', () => (getUsers_().length) + ' คน: ' + getUsers_().map((u) => u.email + ' (' + u.role + '/' + u.status + ')').join(', '));
+  step('ชีตประวัติการใช้งาน', () => logSheet_().getLastRow() + ' แถว');
+  let list = [];
+  step('รายชื่อบริษัท', () => { list = companies_(); return list.map((c) => c.name + ' [' + c.id + ']').join(', '); });
+  list.forEach((c) => {
+    step('  [' + c.name + '] โฟลเดอร์', () => { const f = coFolder_(c.id); return f.getName() + ' — เจ้าของ ' + f.getOwner().getEmail(); });
+    step('  [' + c.name + '] ไฟล์ข้อมูล', () => { const f = coDataFile_(c.id); return f ? (f.getSize() / 1024).toFixed(1) + ' KB, แก้ไขล่าสุด ' + f.getLastUpdated() : 'ยังไม่มี (ปกติสำหรับบริษัทใหม่)'; });
+    step('  [' + c.name + '] อ่านไฟล์ข้อมูล', () => { const f = coDataFile_(c.id); if (!f) return 'ข้าม'; const d = JSON.parse(f.getBlob().getDataAsString()); return (d.documents || []).length + ' เอกสาร'; });
+    step('  [' + c.name + '] โฟลเดอร์ Backups', () => coSub_(c.id, BACKUP_FOLDER_NAME).getName());
+    step('  [' + c.name + '] โฟลเดอร์ Attachments', () => coSub_(c.id, ATTACH_FOLDER_NAME).getName());
+  });
+  step('ค่าตั้งค่า', () => 'Google Login: ' + (clientId_() ? 'เปิด' : 'ปิด') + ' · โดเมน: ' + (domain_() || 'ไม่จำกัด') + ' · รหัสผ่าน: ' + (allowPassword_() ? 'เปิด' : 'ปิด'));
+  Logger.log('— ถ้ามี ❌ ให้ส่งภาพ Execution log นี้ให้ผู้พัฒนา');
+}
+
 function rotateToken() {
   const token = Utilities.getUuid().replace(/-/g, '');
   props().setProperty('API_TOKEN', token);
@@ -152,7 +178,9 @@ function doPost(e) {
       default: return json_({ ok: false, error: 'unknown action: ' + req.action });
     }
   } catch (err) {
-    return json_({ ok: false, code: (err && err.code) || undefined, error: String((err && err.message) || err) });
+    // ระบุตำแหน่งที่เกิดปัญหา (ชื่อฟังก์ชัน/บรรทัด) เพื่อช่วยแก้ไข — ไม่มีข้อมูลลับ
+    const where = String((err && err.stack) || '').split('\n').map((l) => l.trim()).filter((l) => /^at /.test(l)).slice(0, 3).map((l) => l.replace(/^at\s+/, '').replace(/\s*\(.*?:(\d+)(:\d+)?\)/, ' (บรรทัด $1)')).join(' ← ');
+    return json_({ ok: false, code: (err && err.code) || undefined, error: String((err && err.message) || err), where: where || undefined, by: (function () { try { return Session.getEffectiveUser().getEmail(); } catch (e) { return ''; } })() });
   } finally {
     try { lock.releaseLock(); } catch (e2) { /* noop */ }
   }

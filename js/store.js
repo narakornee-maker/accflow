@@ -349,7 +349,11 @@ const Sync = {
     try { j = await res.json(); } catch (e) { throw new Error('เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง — ตรวจสอบ URL ของ Apps Script'); }
     if (j.code === 'AUTH' && typeof Auth !== 'undefined') { Auth.expired(); throw new Error(j.error); }
     if (j.code === 'NOCOMPANY' && Company.id !== 'main') { localStorage.setItem(Company.CUR, 'main'); U.toast(j.error, 'error'); setTimeout(() => location.reload(), 1200); throw new Error(j.error); }
-    if (!j.ok && !j.conflict) { const e = new Error(j.error || 'เกิดข้อผิดพลาด'); e.code = j.code; throw e; }
+    if (!j.ok && !j.conflict) {
+      if (j.where) console.warn('[server error]', j.error, '@', j.where, j.by ? `(ทำงานในนาม ${j.by})` : '');
+      const e = new Error((j.error || 'เกิดข้อผิดพลาด') + (j.where ? `\n[ตำแหน่ง: ${j.where}${j.by ? ` · สคริปต์ทำงานในนาม ${j.by}` : ''}]` : ''));
+      e.code = j.code; throw e;
+    }
     return j;
   },
 
