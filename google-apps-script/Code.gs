@@ -283,10 +283,11 @@ function loginResult_(u, via) {
   const session = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
   const exp = Date.now() + SESSION_DAYS * 86400000;
   props().setProperty('sess:' + session, JSON.stringify({ email: u.email, exp: exp }));
-  u.lastLogin = nowStr_(); saveUser_(u);
+  // ขั้นต่อไปนี้ไม่จำเป็นต่อการเข้าสู่ระบบ — ถ้าล้มจะไม่ขัดการเข้าใช้งาน
+  try { u.lastLogin = nowStr_(); saveUser_(u); } catch (e) { warn_('บันทึกเวลาเข้าใช้ล่าสุด', e); }
   log_(u, 'เข้าสู่ระบบ', via);
   const res = { ok: true, session: session, exp: exp, user: publicUser_(u), companies: myCompanies_(u) };
-  if (u.role === 'admin') res.pendingUsers = getUsers_().filter((x) => x.status === 'pending').length;
+  if (u.role === 'admin') { try { res.pendingUsers = getUsers_().filter((x) => x.status === 'pending').length; } catch (e) { warn_('นับผู้รออนุมัติ', e); } }
   return res;
 }
 
@@ -364,7 +365,9 @@ function hash_(password, salt) {
 
 /* =================== Users sheet =================== */
 let USERS_CACHE = null;
+let USER_SH = null;
 function userSheet_() {
+  if (USER_SH) return USER_SH;
   const ss = getSpreadsheet_();
   let sh = ss.getSheetByName(USER_SHEET);
   if (!sh) {
@@ -372,10 +375,13 @@ function userSheet_() {
     sh.getRange(1, 1, 1000, USER_COLS.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, USER_COLS.length).setValues([USER_COLS.map((c) => c[1])]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     sh.setFrozenRows(1);
-  } else if (String(sh.getRange(1, USER_COLS.length).getValues()[0][0]) !== USER_COLS[USER_COLS.length - 1][1]) {
-    // ชีตจากเวอร์ชันก่อน: เติมหัวคอลัมน์ใหม่
-    sh.getRange(1, 1, 1, USER_COLS.length).setValues([USER_COLS.map((c) => c[1])]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
+  } else {
+    try {
+      // ชีตจากเวอร์ชันก่อน: เติมหัวคอลัมน์ใหม่
+      if (String(sh.getRange(1, USER_COLS.length).getValues()[0][0]) !== USER_COLS[USER_COLS.length - 1][1]) sh.getRange(1, 1, 1, USER_COLS.length).setValues([USER_COLS.map((c) => c[1])]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
+    } catch (e) { /* หัวคอลัมน์ไม่จำเป็นต่อการทำงาน */ }
   }
+  USER_SH = sh;
   return sh;
 }
 function getUsers_() {
@@ -392,12 +398,18 @@ function saveUser_(u) {
   for (let i = 1; i < rows.length; i++) if (String(rows[i][0]).toLowerCase() === u.email) { idx = i; break; }
   if (idx >= 0) sh.getRange(idx + 1, 1, 1, row.length).setValues([row]);
   else { const r = Math.max(sh.getLastRow(), 1) + 1; sh.getRange(r, 1, 1, row.length).setNumberFormat('@').setValues([row]); }
-  USERS_CACHE = null;
+  if (USERS_CACHE) {   // อัปเดตในหน่วยความจำ ไม่ต้องอ่านชีตซ้ำ
+    const o = {}; USER_COLS.forEach((c, i) => (o[c[0]] = row[i])); o.email = String(o.email).toLowerCase();
+    const i = USERS_CACHE.findIndex((x) => x.email === o.email);
+    if (i >= 0) USERS_CACHE[i] = o; else USERS_CACHE.push(o);
+  }
 }
 function publicUser_(u) { const o = {}; USER_COLS.forEach((c) => (o[c[0]] = u[c[0]] || '')); return o; }
 
 /* =================== Activity log =================== */
+let LOG_SH = null;
 function logSheet_() {
+  if (LOG_SH) return LOG_SH;
   const ss = getSpreadsheet_();
   let sh = ss.getSheetByName(LOG_SHEET);
   if (!sh) {
@@ -409,6 +421,7 @@ function logSheet_() {
       if (String(sh.getRange(1, 6).getValues()[0][0]) !== 'บริษัท') sh.getRange(1, 6).setValues([['บริษัท']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     } catch (e) { /* หัวคอลัมน์ไม่จำเป็นต่อการทำงาน */ }
   }
+  LOG_SH = sh;
   return sh;
 }
 function log_(user, action, detail) { logRows_(user, [{ action: action, detail: detail }]); }
@@ -547,9 +560,10 @@ function save_(req, me, cid) {
   const content = JSON.stringify(clean);
   if (file) file.setContent(content);
   else coFolder_(cid).createFile(DATA_FILE, content, MimeType.PLAIN_TEXT);
-  if (req.tables) writeTables_(req.tables, coSheet_(cid));
+  let warning;
+  if (req.tables) { try { writeTables_(req.tables, coSheet_(cid)); } catch (e) { warn_('อัปเดตตาราง Google Sheets', e); warning = 'บันทึกข้อมูลแล้ว แต่อัปเดตตาราง Google Sheets ไม่สำเร็จ: ' + e.message; } }
   if (req.activity && req.activity.length) logRows_(me, req.activity, company_(cid).name);
-  return { ok: true, savedAt: savedAt, size: content.length };
+  return { ok: true, savedAt: savedAt, size: content.length, warning: warning };
 }
 
 function load_(cid) {
@@ -672,12 +686,15 @@ function getFolder_() {
   return f;
 }
 /** Google Sheets กลาง: ผู้ใช้งาน + ประวัติการใช้งาน (+ ตารางของบริษัทแรก) */
+let SS_CACHE = null;   // เปิดไฟล์ Sheets ครั้งเดียวต่อคำขอ แล้วใช้ซ้ำ
 function getSpreadsheet_() {
+  if (SS_CACHE) return SS_CACHE;
   const id = props().getProperty('SHEET_ID');
-  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { /* recreate */ } }
+  if (id) { try { SS_CACHE = SpreadsheetApp.openById(id); return SS_CACHE; } catch (e) { /* recreate */ } }
   const ss = SpreadsheetApp.create(SHEET_NAME);
   DriveApp.getFileById(ss.getId()).moveTo(getFolder_());
   props().setProperty('SHEET_ID', ss.getId());
+  SS_CACHE = ss;
   return ss;
 }
 function pruneBackups_(folder) {
@@ -686,6 +703,7 @@ function pruneBackups_(folder) {
   files.sort((a, b) => b.getDateCreated() - a.getDateCreated());
   files.slice(KEEP_BACKUPS).forEach((f) => f.setTrashed(true));
 }
+function warn_(what, e) { try { console.warn(what + ' ไม่สำเร็จ: ' + ((e && e.message) || e)); } catch (e2) { /* noop */ } }
 function clean_(s) { return String(s || '').trim().slice(0, 120); }
 function nowStr_() { return Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss'); }
 function json_(o) {
