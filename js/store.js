@@ -335,14 +335,15 @@ const Sync = {
     const gasUrl = url || Conn.get().gasUrl;
     if (!gasUrl) throw new Error('ยังไม่ได้ตั้งค่าการเชื่อมต่อเซิร์ฟเวอร์');
     let res;
-    try {
-      res = await fetch(gasUrl, {
-        method: 'POST', redirect: 'follow',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action, session: (typeof Auth !== 'undefined' && Auth.token) || undefined, company: Company.id, ...payload }),
-      });
-    } catch (e) {
-      throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ต หรือการ Deploy ของ Apps Script (ผู้ที่มีสิทธิ์เข้าถึง: ทุกคน)');
+    const body = JSON.stringify({ action, session: (typeof Auth !== 'undefined' && Auth.token) || undefined, company: Company.id, ...payload });
+    for (let attempt = 0; ; attempt++) {
+      try {
+        res = await fetch(gasUrl, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body });
+        break;
+      } catch (e) {
+        if (attempt < 1) { await new Promise((r) => setTimeout(r, 1200)); continue; }   // ลองใหม่อัตโนมัติ 1 ครั้ง
+        throw new Error('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ตรวจสอบอินเทอร์เน็ต หรือการ Deploy ของ Apps Script (ผู้ที่มีสิทธิ์เข้าถึง: ทุกคน)');
+      }
     }
     if (!res.ok) throw new Error('HTTP ' + res.status);
     let j;

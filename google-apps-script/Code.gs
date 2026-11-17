@@ -156,6 +156,7 @@ function doPost(e) {
       if (ADMIN_ACTIONS[req.action] && me.role !== 'admin') return json_({ ok: false, code: 'FORBIDDEN', error: 'เฉพาะผู้ดูแลระบบ' });
     }
     const cid = COMPANY_ACTIONS[req.action] ? cid_(req, me) : null;
+    if (req.action === 'save' || req.action === 'activity') flushLogQueue_();
     switch (req.action) {
       case 'ping': return json_({ ok: true, app: APP_NAME, version: 4 });
       case 'config': return json_(config_());
@@ -288,8 +289,10 @@ function loginResult_(u, via) {
   const exp = Date.now() + SESSION_DAYS * 86400000;
   props().setProperty('sess:' + session, JSON.stringify({ email: u.email, exp: exp }));
   // ขั้นต่อไปนี้ไม่จำเป็นต่อการเข้าสู่ระบบ — ถ้าล้มจะไม่ขัดการเข้าใช้งาน
-  try { u.lastLogin = nowStr_(); saveUser_(u); } catch (e) { warn_('บันทึกเวลาเข้าใช้ล่าสุด', e); }
-  log_(u, 'เข้าสู่ระบบ', via);
+  // ไม่เขียน Google Sheets ระหว่างเข้าสู่ระบบ (ให้ตอบกลับเร็วและไม่ขึ้นกับ Sheets)
+  u.lastLogin = nowStr_();
+  props().setProperty('last:' + u.email, u.lastLogin);
+  queueLog_(u, 'เข้าสู่ระบบ', via);
   const res = { ok: true, session: session, exp: exp, user: publicUser_(u), companies: myCompanies_(u) };
   if (u.role === 'admin') { try { res.pendingUsers = getUsers_().filter((x) => x.status === 'pending').length; } catch (e) { warn_('นับผู้รออนุมัติ', e); } }
   return res;
@@ -387,7 +390,7 @@ function userSheet_() {
 function getUsers_() {
   if (USERS_CACHE) return USERS_CACHE;
   const rows = retry_(() => userSheet_().getDataRange().getValues());
-  USERS_CACHE = rows.slice(1).filter((r) => r[0]).map((r) => { const o = {}; USER_COLS.forEach((c, i) => (o[c[0]] = String(r[i] === undefined ? '' : r[i]))); o.email = o.email.toLowerCase(); return o; });
+  USERS_CACHE = rows.slice(1).filter((r) => r[0]).map((r) => { const o = {}; USER_COLS.forEach((c, i) => (o[c[0]] = String(r[i] === undefined ? '' : r[i]))); o.email = o.email.toLowerCase(); const ll = props().getProperty('last:' + o.email); if (ll) o.lastLogin = ll; return o; });
   return USERS_CACHE;
 }
 function findUser_(email) { email = String(email || '').toLowerCase(); return getUsers_().find((u) => u.email === email) || null; }
@@ -436,6 +439,25 @@ function logSheet_() {
 }
 function log_(user, action, detail) { logRows_(user, [{ action: action, detail: detail }]); }
 /** บันทึกประวัติ — ถ้าเขียนไม่ได้ จะไม่ขัดการทำงานหลัก (เช่น การเข้าสู่ระบบ) */
+/** เก็บประวัติไว้ก่อน (ใน Script Properties) แล้วค่อยเขียนลงชีตในคำขอถัดไป */
+function queueLog_(user, action, detail) {
+  try {
+    const q = JSON.parse(props().getProperty('LOG_QUEUE') || '[]');
+    q.push({ at: new Date().toISOString(), email: user.email, name: ((user.firstName || '') + ' ' + (user.lastName || '')).trim(), action: action, detail: detail || '' });
+    props().setProperty('LOG_QUEUE', JSON.stringify(q.slice(-100)));
+  } catch (e) { warn_('เก็บประวัติชั่วคราว', e); }
+}
+function flushLogQueue_() {
+  let q;
+  try { q = JSON.parse(props().getProperty('LOG_QUEUE') || '[]'); } catch (e) { q = []; }
+  if (!q.length) return;
+  props().deleteProperty('LOG_QUEUE');
+  try {
+    const sh = logSheet_();
+    const rows = q.map((x) => [new Date(x.at), x.email, x.name, x.action, x.detail, '']);
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+  } catch (e) { warn_('เขียนประวัติที่ค้าง', e); }
+}
 function logRows_(user, items, companyName) {
   try { logRowsUnsafe_(user, items, companyName); }
   catch (e) { try { console.error('บันทึกประวัติการใช้งานไม่สำเร็จ: ' + e.message); } catch (e2) { /* noop */ } }
@@ -444,7 +466,7 @@ function logRowsUnsafe_(user, items, companyName) {
   if (!items || !items.length) return;
   const name = user ? ((user.firstName || '') + ' ' + (user.lastName || '')).trim() : '';
   const rows = items.slice(0, 200).map((it) => [it.at ? new Date(it.at) : new Date(), user ? user.email : '', name, String(it.action || '').slice(0, 100), String(it.detail || '').slice(0, 500), companyName || '']);
-  retry_(() => { const sh2 = logSheet_(); sh2.getRange(sh2.getLastRow() + 1, 1, rows.length, 6).setValues(rows); });
+  const sh2 = logSheet_(); sh2.getRange(sh2.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
 }
 function activity_(req) {
   const sh = logSheet_(); const last = sh.getLastRow();
@@ -717,7 +739,7 @@ function pruneBackups_(folder) {
  * ระหว่างลองใหม่จะเปิดไฟล์ Sheets ใหม่
  */
 function retry_(fn, tries) {
-  tries = tries || 4;
+  tries = tries || 3;
   for (let i = 0; ; i++) {
     try { return fn(); }
     catch (e) {
@@ -727,7 +749,7 @@ function retry_(fn, tries) {
       warn_('Sheets (ลองใหม่ครั้งที่ ' + (i + 1) + ')', e);
       try { SpreadsheetApp.flush(); } catch (e2) { /* noop */ }
       SS_CACHE = null; USER_SH = null; LOG_SH = null;   // เปิดไฟล์ใหม่ในรอบถัดไป
-      Utilities.sleep(400 * Math.pow(2, i));
+      Utilities.sleep(250 * (i + 1));
     }
   }
 }
