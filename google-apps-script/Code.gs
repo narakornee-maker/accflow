@@ -100,7 +100,8 @@ function diagnose() {
   step('ชีตผู้ใช้งาน', () => (getUsers_().length) + ' คน: ' + getUsers_().map((u) => u.email + ' (' + u.role + '/' + u.status + ')').join(', '));
   step('ชีตประวัติการใช้งาน (อ่าน)', () => logSheet_().getLastRow() + ' แถว, ' + logSheet_().getMaxColumns() + ' คอลัมน์');
   step('ชีตประวัติการใช้งาน (เขียน)', () => { logRowsUnsafe_({ email: 'diagnose', firstName: 'ทดสอบระบบ', lastName: '' }, [{ action: 'diagnose', detail: 'ทดสอบการเขียน' }], ''); return 'เขียนได้'; });
-  step('ชีตผู้ใช้งาน (เขียน)', () => { const sh = userSheet_(); const v = sh.getRange(1, 1).getValues(); sh.getRange(1, 1).setValues(v); return 'เขียนได้'; });
+  step('ชีตผู้ใช้งาน (เขียน ครั้งเดียว)', () => { const sh = userSheet_(); const v = sh.getRange(1, 1).getValues(); sh.getRange(1, 1).setValues(v); return 'เขียนได้'; });
+  step('ชีตผู้ใช้งาน (เขียน พร้อมลองใหม่อัตโนมัติ)', () => { let n = 0; retry_(() => { n++; const sh = userSheet_(); const v = sh.getRange(1, 1).getValues(); sh.getRange(1, 1).setValues(v); }); return 'เขียนได้' + (n > 1 ? ' (ต้องลอง ' + n + ' ครั้ง — เป็น error ชั่วคราวของ Google)' : ''); });
   step('การป้องกันชีต (Protection)', () => { const ss = getSpreadsheet_(); const p = ss.getProtections(SpreadsheetApp.ProtectionType.SHEET).concat(ss.getProtections(SpreadsheetApp.ProtectionType.RANGE)); return p.length ? p.length + ' รายการ: ' + p.map((x) => { try { return (x.getRange().getSheet().getName()) + ' (แก้ได้: ' + x.getEditors().map((e) => e.getEmail()).join(', ') + ')'; } catch (e) { return '?'; } }).join('; ') : 'ไม่มี'; });
   step('สิทธิ์ใน Google Sheets กลาง', () => { const f = DriveApp.getFileById(getSpreadsheet_().getId()); return 'เจ้าของ ' + f.getOwner().getEmail() + ' · ผู้แก้ไข: ' + (f.getEditors().map((e) => e.getEmail()).join(', ') || '-'); });
   let list = [];
@@ -386,18 +387,20 @@ function userSheet_() {
 }
 function getUsers_() {
   if (USERS_CACHE) return USERS_CACHE;
-  const rows = userSheet_().getDataRange().getValues();
+  const rows = retry_(() => userSheet_().getDataRange().getValues());
   USERS_CACHE = rows.slice(1).filter((r) => r[0]).map((r) => { const o = {}; USER_COLS.forEach((c, i) => (o[c[0]] = String(r[i] === undefined ? '' : r[i]))); o.email = o.email.toLowerCase(); return o; });
   return USERS_CACHE;
 }
 function findUser_(email) { email = String(email || '').toLowerCase(); return getUsers_().find((u) => u.email === email) || null; }
 function saveUser_(u) {
-  const sh = userSheet_(); const rows = sh.getDataRange().getValues();
   const row = USER_COLS.map((c) => String(u[c[0]] === undefined ? '' : u[c[0]]));
-  let idx = -1;
-  for (let i = 1; i < rows.length; i++) if (String(rows[i][0]).toLowerCase() === u.email) { idx = i; break; }
-  if (idx >= 0) sh.getRange(idx + 1, 1, 1, row.length).setValues([row]);
-  else { const r = Math.max(sh.getLastRow(), 1) + 1; sh.getRange(r, 1, 1, row.length).setNumberFormat('@').setValues([row]); }
+  retry_(() => {
+    const sh = userSheet_(); const rows = sh.getDataRange().getValues();
+    let idx = -1;
+    for (let i = 1; i < rows.length; i++) if (String(rows[i][0]).toLowerCase() === u.email) { idx = i; break; }
+    if (idx >= 0) sh.getRange(idx + 1, 1, 1, row.length).setValues([row]);
+    else { const r = Math.max(sh.getLastRow(), 1) + 1; sh.getRange(r, 1, 1, row.length).setNumberFormat('@').setValues([row]); }
+  });
   if (USERS_CACHE) {   // อัปเดตในหน่วยความจำ ไม่ต้องอ่านชีตซ้ำ
     const o = {}; USER_COLS.forEach((c, i) => (o[c[0]] = row[i])); o.email = String(o.email).toLowerCase();
     const i = USERS_CACHE.findIndex((x) => x.email === o.email);
@@ -432,10 +435,9 @@ function logRows_(user, items, companyName) {
 }
 function logRowsUnsafe_(user, items, companyName) {
   if (!items || !items.length) return;
-  const sh = logSheet_();
   const name = user ? ((user.firstName || '') + ' ' + (user.lastName || '')).trim() : '';
   const rows = items.slice(0, 200).map((it) => [it.at ? new Date(it.at) : new Date(), user ? user.email : '', name, String(it.action || '').slice(0, 100), String(it.detail || '').slice(0, 500), companyName || '']);
-  sh.getRange(sh.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+  retry_(() => { const sh2 = logSheet_(); sh2.getRange(sh2.getLastRow() + 1, 1, rows.length, 6).setValues(rows); });
 }
 function activity_(req) {
   const sh = logSheet_(); const last = sh.getLastRow();
@@ -702,6 +704,25 @@ function pruneBackups_(folder) {
   while (it.hasNext()) files.push(it.next());
   files.sort((a, b) => b.getDateCreated() - a.getDateCreated());
   files.slice(KEEP_BACKUPS).forEach((f) => f.setTrashed(true));
+}
+/**
+ * ลองใหม่อัตโนมัติเมื่อ Google Sheets ตอบ error ชั่วคราว (เช่น “ไม่มีสิทธิ์เข้าถึงเอกสาร”, Service error, timeout)
+ * ระหว่างลองใหม่จะเปิดไฟล์ Sheets ใหม่
+ */
+function retry_(fn, tries) {
+  tries = tries || 4;
+  for (let i = 0; ; i++) {
+    try { return fn(); }
+    catch (e) {
+      const msg = String((e && e.message) || e);
+      const transient = /permission|สิทธิ์|access the requested|เข้าถึงเอกสาร|Service|บริการ|timed out|หมดเวลา|try again|ลองอีกครั้ง|internal error|ข้อผิดพลาดภายใน/i.test(msg);
+      if (!transient || i >= tries - 1) throw e;
+      warn_('Sheets (ลองใหม่ครั้งที่ ' + (i + 1) + ')', e);
+      try { SpreadsheetApp.flush(); } catch (e2) { /* noop */ }
+      SS_CACHE = null; USER_SH = null; LOG_SH = null;   // เปิดไฟล์ใหม่ในรอบถัดไป
+      Utilities.sleep(400 * Math.pow(2, i));
+    }
+  }
 }
 function warn_(what, e) { try { console.warn(what + ' ไม่สำเร็จ: ' + ((e && e.message) || e)); } catch (e2) { /* noop */ } }
 function clean_(s) { return String(s || '').trim().slice(0, 120); }
