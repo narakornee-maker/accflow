@@ -98,7 +98,11 @@ function diagnose() {
   step('โฟลเดอร์หลัก (AccFlow Data)', () => { const f = getFolder_(); return f.getName() + ' — เจ้าของ ' + f.getOwner().getEmail(); });
   step('Google Sheets กลาง', () => { const ss = getSpreadsheet_(); return ss.getName() + ' — ' + ss.getUrl(); });
   step('ชีตผู้ใช้งาน', () => (getUsers_().length) + ' คน: ' + getUsers_().map((u) => u.email + ' (' + u.role + '/' + u.status + ')').join(', '));
-  step('ชีตประวัติการใช้งาน', () => logSheet_().getLastRow() + ' แถว');
+  step('ชีตประวัติการใช้งาน (อ่าน)', () => logSheet_().getLastRow() + ' แถว, ' + logSheet_().getMaxColumns() + ' คอลัมน์');
+  step('ชีตประวัติการใช้งาน (เขียน)', () => { logRowsUnsafe_({ email: 'diagnose', firstName: 'ทดสอบระบบ', lastName: '' }, [{ action: 'diagnose', detail: 'ทดสอบการเขียน' }], ''); return 'เขียนได้'; });
+  step('ชีตผู้ใช้งาน (เขียน)', () => { const sh = userSheet_(); const v = sh.getRange(1, 1).getValues(); sh.getRange(1, 1).setValues(v); return 'เขียนได้'; });
+  step('การป้องกันชีต (Protection)', () => { const ss = getSpreadsheet_(); const p = ss.getProtections(SpreadsheetApp.ProtectionType.SHEET).concat(ss.getProtections(SpreadsheetApp.ProtectionType.RANGE)); return p.length ? p.length + ' รายการ: ' + p.map((x) => { try { return (x.getRange().getSheet().getName()) + ' (แก้ได้: ' + x.getEditors().map((e) => e.getEmail()).join(', ') + ')'; } catch (e) { return '?'; } }).join('; ') : 'ไม่มี'; });
+  step('สิทธิ์ใน Google Sheets กลาง', () => { const f = DriveApp.getFileById(getSpreadsheet_().getId()); return 'เจ้าของ ' + f.getOwner().getEmail() + ' · ผู้แก้ไข: ' + (f.getEditors().map((e) => e.getEmail()).join(', ') || '-'); });
   let list = [];
   step('รายชื่อบริษัท', () => { list = companies_(); return list.map((c) => c.name + ' [' + c.id + ']').join(', '); });
   list.forEach((c) => {
@@ -400,13 +404,20 @@ function logSheet_() {
     sh = ss.insertSheet(LOG_SHEET);
     sh.getRange(1, 1, 1, 6).setValues([['เวลา', 'อีเมล', 'ชื่อ', 'การกระทำ', 'รายละเอียด', 'บริษัท']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     sh.setFrozenRows(1); sh.setColumnWidth(1, 160); sh.setColumnWidth(5, 380);
-  } else if (String(sh.getRange(1, 6).getValues()[0][0]) !== 'บริษัท') {
-    sh.getRange(1, 6).setValues([['บริษัท']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
+  } else {
+    try {
+      if (String(sh.getRange(1, 6).getValues()[0][0]) !== 'บริษัท') sh.getRange(1, 6).setValues([['บริษัท']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
+    } catch (e) { /* หัวคอลัมน์ไม่จำเป็นต่อการทำงาน */ }
   }
   return sh;
 }
 function log_(user, action, detail) { logRows_(user, [{ action: action, detail: detail }]); }
+/** บันทึกประวัติ — ถ้าเขียนไม่ได้ จะไม่ขัดการทำงานหลัก (เช่น การเข้าสู่ระบบ) */
 function logRows_(user, items, companyName) {
+  try { logRowsUnsafe_(user, items, companyName); }
+  catch (e) { try { console.error('บันทึกประวัติการใช้งานไม่สำเร็จ: ' + e.message); } catch (e2) { /* noop */ } }
+}
+function logRowsUnsafe_(user, items, companyName) {
   if (!items || !items.length) return;
   const sh = logSheet_();
   const name = user ? ((user.firstName || '') + ' ' + (user.lastName || '')).trim() : '';
