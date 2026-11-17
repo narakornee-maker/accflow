@@ -64,6 +64,7 @@ function clearSavedConfig() {
 function setup() {
   const folder = getFolder_();
   const ss = getSpreadsheet_();
+  upgradeHeaders_();
   try { migrateMainFolder_(); } catch (e) { Logger.log('⚠️ ย้ายโฟลเดอร์บริษัทหลักไม่สำเร็จ (ระบบยังใช้งานได้ตามเดิม): ' + e); }
   companies_().forEach((c) => { try { coSub_(c.id, BACKUP_FOLDER_NAME); coSub_(c.id, ATTACH_FOLDER_NAME); } catch (e) { /* noop */ } });
   userSheet_(); logSheet_();
@@ -100,8 +101,10 @@ function diagnose() {
   step('ชีตผู้ใช้งาน', () => (getUsers_().length) + ' คน: ' + getUsers_().map((u) => u.email + ' (' + u.role + '/' + u.status + ')').join(', '));
   step('ชีตประวัติการใช้งาน (อ่าน)', () => logSheet_().getLastRow() + ' แถว, ' + logSheet_().getMaxColumns() + ' คอลัมน์');
   step('ชีตประวัติการใช้งาน (เขียน)', () => { logRowsUnsafe_({ email: 'diagnose', firstName: 'ทดสอบระบบ', lastName: '' }, [{ action: 'diagnose', detail: 'ทดสอบการเขียน' }], ''); return 'เขียนได้'; });
-  step('ชีตผู้ใช้งาน (เขียน ครั้งเดียว)', () => { const sh = userSheet_(); const v = sh.getRange(1, 1).getValues(); sh.getRange(1, 1).setValues(v); return 'เขียนได้'; });
-  step('ชีตผู้ใช้งาน (เขียน พร้อมลองใหม่อัตโนมัติ)', () => { let n = 0; retry_(() => { n++; const sh = userSheet_(); const v = sh.getRange(1, 1).getValues(); sh.getRange(1, 1).setValues(v); }); return 'เขียนได้' + (n > 1 ? ' (ต้องลอง ' + n + ' ครั้ง — เป็น error ชั่วคราวของ Google)' : ''); });
+  step('ชีตผู้ใช้งาน (เขียนแถวข้อมูล — แบบที่ระบบใช้จริง)', () => { const u = getUsers_()[0]; if (!u) return 'ยังไม่มีผู้ใช้ ข้าม'; saveUser_(u); return 'เขียนได้'; });
+  try { const sh = userSheet_(); const v = sh.getRange(1, 1).getValues(); sh.getRange(1, 1).setValues(v); Logger.log('ℹ️ แถวหัวตารางชีตผู้ใช้งาน: เขียนได้'); }
+  catch (e) { Logger.log('ℹ️ แถวหัวตารางชีตผู้ใช้งาน: เข้าถึงไม่ได้ (' + e.message + ') — ระบบไม่ใช้ส่วนนี้แล้ว ไม่กระทบการทำงาน'); }
+  step('ชนิดชีตผู้ใช้งาน', () => { const sh = userSheet_(); let t = ''; try { t = String(sh.getType()); } catch (e) { t = '?'; } return 'type=' + t + ' · แถวที่ตรึง ' + sh.getFrozenRows() + ' · ขนาด ' + sh.getMaxRows() + '×' + sh.getMaxColumns(); });
   step('การป้องกันชีต (Protection)', () => { const ss = getSpreadsheet_(); const p = ss.getProtections(SpreadsheetApp.ProtectionType.SHEET).concat(ss.getProtections(SpreadsheetApp.ProtectionType.RANGE)); return p.length ? p.length + ' รายการ: ' + p.map((x) => { try { return (x.getRange().getSheet().getName()) + ' (แก้ได้: ' + x.getEditors().map((e) => e.getEmail()).join(', ') + ')'; } catch (e) { return '?'; } }).join('; ') : 'ไม่มี'; });
   step('สิทธิ์ใน Google Sheets กลาง', () => { const f = DriveApp.getFileById(getSpreadsheet_().getId()); return 'เจ้าของ ' + f.getOwner().getEmail() + ' · ผู้แก้ไข: ' + (f.getEditors().map((e) => e.getEmail()).join(', ') || '-'); });
   let list = [];
@@ -376,12 +379,8 @@ function userSheet_() {
     sh.getRange(1, 1, 1000, USER_COLS.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, USER_COLS.length).setValues([USER_COLS.map((c) => c[1])]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     sh.setFrozenRows(1);
-  } else {
-    try {
-      // ชีตจากเวอร์ชันก่อน: เติมหัวคอลัมน์ใหม่
-      if (String(sh.getRange(1, USER_COLS.length).getValues()[0][0]) !== USER_COLS[USER_COLS.length - 1][1]) sh.getRange(1, 1, 1, USER_COLS.length).setValues([USER_COLS.map((c) => c[1])]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
-    } catch (e) { /* หัวคอลัมน์ไม่จำเป็นต่อการทำงาน */ }
   }
+  // หมายเหตุ: ไม่อ่าน/เขียนแถวหัวตาราง (แถว 1) ทีละช่อง — บางชีตปฏิเสธการเข้าถึงส่วนนี้
   USER_SH = sh;
   return sh;
 }
@@ -409,6 +408,18 @@ function saveUser_(u) {
 }
 function publicUser_(u) { const o = {}; USER_COLS.forEach((c) => (o[c[0]] = u[c[0]] || '')); return o; }
 
+/** เติมหัวคอลัมน์ใหม่ให้ชีตจากเวอร์ชันก่อน (รันใน setup เท่านั้น — ถ้าทำไม่ได้ก็ไม่เป็นไร) */
+function upgradeHeaders_() {
+  const fix = (sh, headers) => {
+    try {
+      const cur = sh.getRange(1, 1, 1, headers.length).getValues()[0].map(String);
+      if (cur.join('|') !== headers.join('|')) sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
+    } catch (e) { Logger.log('ℹ️ ข้ามการปรับหัวคอลัมน์ชีต “' + sh.getName() + '”: ' + e.message + ' (ไม่กระทบการทำงาน)'); }
+  };
+  fix(userSheet_(), USER_COLS.map((c) => c[1]));
+  fix(logSheet_(), ['เวลา', 'อีเมล', 'ชื่อ', 'การกระทำ', 'รายละเอียด', 'บริษัท']);
+}
+
 /* =================== Activity log =================== */
 let LOG_SH = null;
 function logSheet_() {
@@ -419,10 +430,6 @@ function logSheet_() {
     sh = ss.insertSheet(LOG_SHEET);
     sh.getRange(1, 1, 1, 6).setValues([['เวลา', 'อีเมล', 'ชื่อ', 'การกระทำ', 'รายละเอียด', 'บริษัท']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
     sh.setFrozenRows(1); sh.setColumnWidth(1, 160); sh.setColumnWidth(5, 380);
-  } else {
-    try {
-      if (String(sh.getRange(1, 6).getValues()[0][0]) !== 'บริษัท') sh.getRange(1, 6).setValues([['บริษัท']]).setFontWeight('bold').setBackground('#2E7D32').setFontColor('#ffffff');
-    } catch (e) { /* หัวคอลัมน์ไม่จำเป็นต่อการทำงาน */ }
   }
   LOG_SH = sh;
   return sh;
