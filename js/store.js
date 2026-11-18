@@ -104,9 +104,25 @@ const Company = {
     await this.switchTo(r.company.id);
   },
 
-  /** ลบข้อมูลทุกบริษัทที่เก็บในเครื่อง (ตอนออกจากระบบ) */
+  /** ลบข้อมูลที่เก็บในเครื่อง (ตอนออกจากระบบ) — ยกเว้นบริษัทที่ยังมีงานไม่ได้ซิงก์ จะเก็บไว้ส่งขึ้นเมื่อเข้าสู่ระบบครั้งถัดไป */
   clearLocal() {
-    Object.keys(localStorage).forEach((k) => { if (k.startsWith('accflow_state_v1') || k.startsWith('accflow_activity')) localStorage.removeItem(k); });
+    const keep = new Set();
+    Object.keys(localStorage).forEach((k) => {
+      if (!k.startsWith('accflow_state_v1')) return;
+      try { const st = JSON.parse(localStorage.getItem(k)); if (st && st.meta && st.meta.dirty) keep.add(k.replace('accflow_state_v1', '')); } catch (e) { /* noop */ }
+    });
+    Object.keys(localStorage).forEach((k) => {
+      const m = /^accflow_(state_v1|activity)(.*)$/.exec(k);
+      if (m && !keep.has(m[2])) localStorage.removeItem(k);
+    });
+    return keep.size;
+  },
+  /** มีบริษัทไหนที่ยังมีงานค้างไม่ได้ซิงก์บ้าง */
+  pendingLocal() {
+    return Object.keys(localStorage).filter((k) => {
+      if (!k.startsWith('accflow_state_v1')) return false;
+      try { const st = JSON.parse(localStorage.getItem(k)); return !!(st && st.meta && st.meta.dirty); } catch (e) { return false; }
+    }).length;
   },
 };
 
@@ -363,7 +379,7 @@ const Sync = {
     if (!Store.state.settings.autoSync) { this.setStatus('pending'); return; }
     this.setStatus('pending');
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.push().catch(() => {}), 2500);
+    this.timer = setTimeout(() => this.push().catch((e) => this.warnUnsynced(e)), 2500);
   },
 
   /** ส่งข้อมูลขึ้น (ถ้ามีคนอื่นบันทึกก่อน จะรวมข้อมูลแล้วส่งใหม่อัตโนมัติ) */
@@ -397,6 +413,15 @@ const Sync = {
     finally { this.busy = false; }
   },
 
+  /** แจ้งเตือนเมื่อบันทึกขึ้นเซิร์ฟเวอร์ไม่สำเร็จ (ข้อมูลยังอยู่ในเครื่อง และจะลองส่งใหม่อัตโนมัติ) */
+  warnUnsynced(e) {
+    if (Date.now() - (this._warnedAt || 0) < 60000) return;
+    this._warnedAt = Date.now();
+    U.toast('ยังบันทึกขึ้นเซิร์ฟเวอร์ไม่สำเร็จ — ข้อมูลยังเก็บอยู่ในเครื่องนี้ ระบบจะลองส่งใหม่อัตโนมัติ (อย่าเพิ่งออกจากระบบหรือล้างข้อมูลเบราว์เซอร์)', 'error');
+    clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => { if (Store.state.meta.dirty) this.push().catch((er) => this.warnUnsynced(er)); }, 30000);
+  },
+
   /** แทนที่ข้อมูลทั้งหมดบนเซิร์ฟเวอร์ (ล้างข้อมูล / นำเข้า / ข้อมูลตัวอย่าง) — สำรองข้อมูลเดิมก่อน */
   async overwrite(data, reason) {
     if (this.enabled()) { try { await this.call('backup'); } catch (e) { /* ยังไม่มีไฟล์ */ } }
@@ -425,7 +450,10 @@ const Sync = {
   async refresh({ quiet = true } = {}) {
     if (!this.enabled() || this.busy) return;
     try {
+      const before = Store.state.meta.syncedAt || '';
       const remote = await this.pull();
+      // ระหว่างรอดึงข้อมูล ถ้ามีการบันทึกขึ้นเซิร์ฟเวอร์ไปแล้ว ข้อมูลที่ดึงมาอาจเก่ากว่า — ทิ้งไป รอบหน้าค่อยดึงใหม่
+      if (this.busy || (Store.state.meta.syncedAt || '') !== before) return;
       if (remote && remote.__unchanged) { if (Store.state.meta.dirty) await this.push(); else if (!quiet) U.toast('ข้อมูลเป็นปัจจุบันแล้ว', 'info'); return; }
       if (!remote) { if (Store.state.meta.dirty || Store.state.documents.length) await this.push({ sheets: true }); return; }
       const rv = (remote.meta && remote.meta.syncedAt) || '';

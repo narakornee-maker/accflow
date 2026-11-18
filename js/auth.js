@@ -73,7 +73,7 @@ const Auth = {
   async logout() {
     if (Store.state.meta.dirty && Sync.enabled()) {
       try { await Sync.push(); } catch (e) {
-        if (!(await U.confirm('ยังมีข้อมูลที่ยังไม่ได้ซิงก์ขึ้นเซิร์ฟเวอร์ ถ้าออกจากระบบตอนนี้ข้อมูลส่วนนี้จะหายไป ต้องการออกหรือไม่?', { danger: true, okText: 'ออกจากระบบ' }))) return;
+        if (!(await U.confirm('ยังส่งข้อมูลขึ้นเซิร์ฟเวอร์ไม่สำเร็จ — ข้อมูลส่วนนี้จะเก็บไว้ในเครื่องนี้ และส่งขึ้นอัตโนมัติเมื่อเข้าสู่ระบบครั้งถัดไปบนเครื่องนี้ ต้องการออกจากระบบหรือไม่?', { okText: 'ออกจากระบบ' }))) return;
       }
     }
     try { await Sync.call('logout'); } catch (e) { /* noop */ }
@@ -131,7 +131,7 @@ const Auth = {
     if (!synced && Sync.enabled()) { try { await Sync.push(); synced = true; } catch (e) { synced = false; } }
     try { await Sync.call('logout'); } catch (e) { /* noop */ }
     this.clearSession();
-    if (synced) Company.clearLocal();   // ถ้ายังซิงก์ไม่ได้ เก็บไว้ในเครื่องเพื่อส่งขึ้นหลังเข้าสู่ระบบใหม่
+    Company.clearLocal();   // บริษัทที่ยังซิงก์ไม่ได้ จะถูกเก็บไว้ในเครื่องเพื่อส่งขึ้นหลังเข้าสู่ระบบใหม่
     sessionStorage.setItem('accflow_idle', '1');
     location.hash = ''; location.reload();
   },
