@@ -19,8 +19,39 @@ const Pay = {
     const own = d.payBox || {};
     const show = own.show != null ? own.show : !!c.showOn[d.type];
     const ids = own.banks || c.banks.filter((b) => b.def !== false).map((b) => b.id);
-    return { show, banks: c.banks.filter((b) => ids.includes(b.id)), c };
+    const qrOk = !!(c.methods || {}).promptpay && this.ppValid(c.promptPay) && d.type !== 'RC';
+    const qr = qrOk && (own.qr != null ? own.qr : !!c.qr);
+    return { show, banks: c.banks.filter((b) => ids.includes(b.id)), c, qr, qrOk };
   },
+  /** เลขพร้อมเพย์ → ประเภท (โทรศัพท์ / เลขผู้เสียภาษี / e-Wallet) */
+  ppTarget(id) {
+    const x = String(id || '').replace(/\D/g, '');
+    if (x.length === 10 && x[0] === '0') return ['01', '0066' + x.slice(1)];
+    if (x.length === 13) return ['02', x];
+    if (x.length === 15) return ['03', x];
+    return null;
+  },
+  ppValid(id) { return !!this.ppTarget(id); },
+  /** ข้อความ QR มาตรฐาน Thai QR Payment (EMVCo) สำหรับพร้อมเพย์ */
+  ppPayload(id, amount) {
+    const t = this.ppTarget(id); if (!t) return '';
+    const f = (k, v) => k + String(v.length).padStart(2, '0') + v;
+    const amt = +amount > 0 ? (+amount).toFixed(2) : '';
+    let s = f('00', '01') + f('01', amt ? '12' : '11') + f('29', f('00', 'A000000677010111') + f(t[0], t[1])) + f('58', 'TH') + f('53', '764') + (amt ? f('54', amt) : '') + '6304';
+    let crc = 0xFFFF;
+    for (let i = 0; i < s.length; i++) { crc ^= s.charCodeAt(i) << 8; for (let j = 0; j < 8; j++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF; }
+    return s + crc.toString(16).toUpperCase().padStart(4, '0');
+  },
+  qrSvg(text, px = 120) {
+    if (typeof qrcode === 'undefined' || !text) return '';
+    const q = qrcode(0, 'M'); q.addData(text); q.make();
+    const n = q.getModuleCount(), cell = px / (n + 2);
+    let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${((c + 1) * cell).toFixed(2)} ${((r + 1) * cell).toFixed(2)}h${cell.toFixed(2)}v${cell.toFixed(2)}h-${cell.toFixed(2)}z`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 ${px} ${px}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  },
+  /** ยอดที่ลูกค้าต้องจ่าย (หลังหัก ณ ที่จ่าย) */
+  dueAmount(d) { const c = ACC.calcDoc(d); return c.wht ? c.net : c.total; },
   fmtNo(n) { const x = String(n || '').replace(/\D/g, ''); return x.length === 10 ? `${x.slice(0, 3)}-${x.slice(3, 4)}-${x.slice(4, 9)}-${x.slice(9)}` : (n || ''); },
   /** กล่อง “ช่องทางการชำระเงิน” บนเอกสาร */
   box(d) {
@@ -37,9 +68,11 @@ const Pay = {
       if (k === 'cheque') t += ` สั่งจ่ายในนาม <b>“${U.esc(c.chequePayee || Store.state.company.name)}”</b> ขีดคร่อม A/C Payee Only`;
       return `<div class="pb-m">${tick(true)}${t}</div>`;
     }).join('');
-    if (!rows && !methods && !c.extra) return '';
-    return `<div class="paybox"><div class="pb-h">ช่องทางการชำระเงิน <small>/ Payment Information</small></div>
-      ${rows ? `<div class="pb-banks">${rows}</div>` : ''}${methods ? `<div class="pb-ms">${methods}</div>` : ''}${c.extra ? `<div class="pb-x">${U.esc(c.extra)}</div>` : ''}</div>`;
+    if (!rows && !methods && !c.extra && !f.qr) return '';
+    const amt = f.qr ? this.dueAmount(d) : 0;
+    const qr = f.qr ? `<div class="pb-qr"><div class="pb-qr-h">PromptPay</div>${this.qrSvg(this.ppPayload(c.promptPay, amt), 104)}<div class="pb-qr-a">${amt > 0 ? `฿${U.money(amt)}` : 'ระบุยอดเอง'}</div><div class="pb-qr-s">สแกนจ่ายด้วยแอปธนาคาร</div></div>` : '';
+    return `<div class="paybox${qr ? ' has-qr' : ''}"><div><div class="pb-h">ช่องทางการชำระเงิน <small>/ Payment Information</small></div>
+      ${rows ? `<div class="pb-banks">${rows}</div>` : ''}${methods ? `<div class="pb-ms">${methods}</div>` : ''}${c.extra ? `<div class="pb-x">${U.esc(c.extra)}</div>` : ''}</div>${qr}</div>`;
   },
 };
 
@@ -77,6 +110,11 @@ const Print = {
     .pb-ms { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 6px; }
     .pb-ck { display: inline-block; width: 11px; height: 11px; border: 1px solid #374151; border-radius: 2px; margin-right: 5px; font-size: 10px; line-height: 10px; text-align: center; font-weight: 700; color: var(--c); vertical-align: -1px; }
     .pb-x { margin-top: 5px; color: #374151; white-space: pre-wrap; }
+    .paybox.has-qr { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; }
+    .pb-qr { text-align: center; border: 1px solid #e5e7eb; border-radius: 6px; padding: 5px 8px 6px; width: 128px; }
+    .pb-qr svg { display: block; margin: 0 auto; }
+    .pb-qr-h { background: #0e3d6b; color: #fff; font-weight: 700; font-size: 10.5px; border-radius: 3px; padding: 1px 0; margin-bottom: 3px; letter-spacing: .5px; }
+    .pb-qr-a { font-weight: 700; font-size: 12.5px; } .pb-qr-s { font-size: 9.5px; color: #6b7280; }
 
     /* ---------- modern ---------- */
     .m .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
@@ -321,6 +359,7 @@ const Print = {
             <div class="field"><label>หมายเหตุ</label><textarea data-d="note" rows="3">${U.esc(d.note || '')}</textarea></div></div>
           ${sales ? (() => { const pf = Pay.forDoc(d); const ids = pf.banks.map((b) => b.id); const all = pf.c.banks; return `<div class="pv-sec"><h4>${U.icon('landmark')}ช่องทางการชำระเงิน</h4>
             <label class="check"><input type="checkbox" data-pay="show" ${pf.show ? 'checked' : ''}> แสดงในเอกสารนี้</label>
+            ${pf.qrOk ? `<label class="check"><input type="checkbox" data-pay="qr" ${pf.qr ? 'checked' : ''}> QR พร้อมเพย์พร้อมยอดเงิน</label>` : ''}
             ${all.length ? all.map((b) => `<label class="check"><input type="checkbox" data-pay-bank="${b.id}" ${ids.includes(b.id) ? 'checked' : ''}> ${U.esc(b.bank)} ${U.esc(Pay.fmtNo(b.accNo))}</label>`).join('') : ''}
             <div class="small muted">${all.length ? '' : 'ยังไม่มีบัญชีธนาคาร — '}<a href="#/settings/payment" data-gosign>ตั้งค่าบัญชีรับชำระเงิน</a></div></div>`; })() : ''}
           ${(d.fileIds || []).filter((x) => Files.get(x)).length ? `<div class="pv-sec"><h4>${U.icon('paperclip')}ไฟล์แนบ (เปิดเพื่อพิมพ์/ส่งแยก)</h4>
@@ -352,7 +391,8 @@ const Print = {
           if (t.dataset.d) { d[t.dataset.d] = t.value; dirty = true; renderLater(); }
           if (t.dataset.pay || t.dataset.payBank) {
             const pf = Pay.forDoc(d);
-            d.payBox = { show: root.querySelector('[data-pay=show]').checked, banks: [...root.querySelectorAll('[data-pay-bank]')].filter((x) => x.checked).map((x) => x.dataset.payBank) };
+            const qrEl = root.querySelector('[data-pay=qr]');
+            d.payBox = { show: root.querySelector('[data-pay=show]').checked, qr: qrEl ? qrEl.checked : undefined, banks: [...root.querySelectorAll('[data-pay-bank]')].filter((x) => x.checked).map((x) => x.dataset.payBank) };
             if (!pf.c.banks.length) delete d.payBox.banks;
             dirty = true; render();
           }

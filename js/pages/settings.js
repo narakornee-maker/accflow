@@ -88,6 +88,8 @@ Pages.settings = (view, tab = 'company') => {
       <div class="form-grid mt-2">
         <div class="field"><label>เลขพร้อมเพย์ (เบอร์โทร / เลขผู้เสียภาษี)</label><input id="pp" value="${U.esc(pc.promptPay)}" placeholder="เช่น 0955677704"></div>
         <div class="field"><label>ชื่อบัญชีพร้อมเพย์</label><input id="ppn" value="${U.esc(pc.promptPayName)}" placeholder="${U.esc(Store.state.company.name)}"></div>
+        <div class="field full"><label class="check"><input type="checkbox" id="ppqr" ${pc.qr ? 'checked' : ''}> แสดง <b>QR พร้อมเพย์พร้อมยอดเงิน</b> ให้ลูกค้าสแกนจ่าย (ยอดหลังหัก ณ ที่จ่าย · ไม่แสดงในใบเสร็จ)</label>
+          <div class="muted small" id="pp-hint">${pc.promptPay && !Pay.ppValid(pc.promptPay) ? '<span style="color:var(--danger)">เลขพร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก หรือเลขผู้เสียภาษี/บัตรประชาชน 13 หลัก</span>' : 'ต้องติ๊ก “พร้อมเพย์” และใส่เลขพร้อมเพย์ด้วย — เลือกปิด/เปิดรายเอกสารได้ที่หน้าตัวอย่างก่อนพิมพ์'}</div></div>
         <div class="field full"><label>เช็คสั่งจ่ายในนาม</label><input id="chq" value="${U.esc(pc.chequePayee)}" placeholder="${U.esc(Store.state.company.name)}"></div>
         <div class="field full"><label>ข้อความเพิ่มเติม (แสดงใต้ช่องทางชำระเงิน)</label><textarea id="pex" rows="2" placeholder="เช่น กรุณาส่งหลักฐานการโอนมาที่ ${U.esc(Store.state.company.email || 'อีเมลบริษัท')} หรือ Line: ...">${U.esc(pc.extra)}</textarea></div>
       </div>
@@ -99,9 +101,11 @@ Pages.settings = (view, tab = 'company') => {
         pc.methods = {}; body.querySelectorAll('[data-m]').forEach((x) => { if (x.checked) pc.methods[x.dataset.m] = true; });
         pc.showOn = {}; body.querySelectorAll('[data-show]').forEach((x) => { if (x.checked) pc.showOn[x.dataset.show] = true; });
         body.querySelectorAll('[data-def]').forEach((x) => { pc.banks[+x.dataset.def].def = x.checked; });
+        pc.qr = U.$('#ppqr').checked;
         pc.promptPay = U.$('#pp').value.trim(); pc.promptPayName = U.$('#ppn').value.trim(); pc.chequePayee = U.$('#chq').value.trim(); pc.extra = U.$('#pex').value.trim();
       };
-      const save = (msg = 'บันทึกการตั้งค่าแล้ว') => { collect(); Store.state.company.payment = JSON.parse(JSON.stringify(pc)); Store.save({ silent: true }); U.toast(msg); };
+      const save = (msg = 'บันทึกการตั้งค่าแล้ว') => { collect();
+        if (pc.qr && (!pc.methods.promptpay || !Pay.ppValid(pc.promptPay))) U.toast('QR พร้อมเพย์จะยังไม่แสดง — ต้องติ๊ก “พร้อมเพย์” และใส่เบอร์มือถือ 10 หลัก หรือเลข 13 หลัก', 'error'); Store.state.company.payment = JSON.parse(JSON.stringify(pc)); Store.save({ silent: true }); U.toast(msg); };
       const edit = (i) => {
         collect();
         const b = i == null ? { id: U.uid(), bank: '', branch: '', accName: Store.state.company.name, accNo: '', type: 'savings', def: true } : { ...pc.banks[i] };
