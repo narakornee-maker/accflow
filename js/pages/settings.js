@@ -2,7 +2,7 @@
  * Settings: กิจการ / ภาษี / เงินเดือน / Google / ข้อมูล
  * ============================================================ */
 Pages.settings = (view, tab = 'company') => {
-  const TABS = [['company', 'building', 'ข้อมูลกิจการ'], ['tax', 'percent', 'ภาษีและเอกสาร'], ['payroll', 'id-card', 'เงินเดือน'], ['sign', 'signature', 'ลายเซ็นและตราประทับ'],
+  const TABS = [['company', 'building', 'ข้อมูลกิจการ'], ['tax', 'percent', 'ภาษีและเอกสาร'], ['payment', 'landmark', 'ช่องทางชำระเงิน'], ['payroll', 'id-card', 'เงินเดือน'], ['sign', 'signature', 'ลายเซ็นและตราประทับ'],
     ['companies', 'building-2', 'บริษัท'], ['users', 'users', 'ผู้ใช้งาน'], ['activity', 'history', 'ประวัติการใช้งาน'], ['google', 'cloud', 'เซิร์ฟเวอร์ / Google'], ['data', 'database', 'สำรองและกู้คืนข้อมูล']];
   if (!Auth.isAdmin()) {
     App.setTitle('ตั้งค่าการใช้งาน');
@@ -69,6 +69,75 @@ Pages.settings = (view, tab = 'company') => {
       // ให้ชื่อในตัวสลับบริษัทตรงกับชื่อกิจการ
       if (c.name && c.name !== Company.current().name && Sync.enabled()) Sync.call('renameCompany', { id: Company.id, name: c.name }).then((r) => { Company.setList(r.companies); App.renderCompanySwitch(); U.refreshIcons(); }).catch(() => {});
     });
+  } else if (tab === 'payment') {
+    const pc = Pay.cfg();
+    const draw = () => {
+      const m = pc.methods || {};
+      body.innerHTML = `
+      <h4 style="margin:0">บัญชีธนาคารสำหรับรับชำระเงิน</h4>
+      <p class="muted small" style="margin:2px 0 10px">แสดงในกล่อง “ช่องทางการชำระเงิน” บนใบวางบิล/ใบเสนอราคา — ติ๊ก “ค่าเริ่มต้น” เพื่อให้แสดงอัตโนมัติ (เลือกเฉพาะเอกสารได้ที่หน้าตัวอย่างก่อนพิมพ์)</p>
+      ${pc.banks.length ? `<div class="table-wrap" style="border:1px solid var(--border);border-radius:10px"><table class="tbl"><thead><tr><th>ธนาคาร / สาขา</th><th>ชื่อบัญชี</th><th>เลขที่บัญชี</th><th>ประเภท</th><th class="text-center">ค่าเริ่มต้น</th><th></th></tr></thead><tbody>
+        ${pc.banks.map((b, i) => `<tr><td><b>${U.esc(b.bank)}</b>${b.branch ? `<div class="muted small">สาขา${U.esc(b.branch.replace(/^สาขา\s*/, ''))}</div>` : ''}</td><td>${U.esc(b.accName)}</td><td class="mono"><b>${U.esc(Pay.fmtNo(b.accNo))}</b></td><td>${Pay.TYPES[b.type] || ''}</td>
+          <td class="text-center"><input type="checkbox" data-def="${i}" ${b.def !== false ? 'checked' : ''}></td>
+          <td class="text-right" style="white-space:nowrap"><button class="btn btn-xs btn-ghost" data-ed="${i}">${U.icon('pencil')}</button><button class="btn btn-xs btn-ghost" data-up="${i}" ${i ? '' : 'disabled'} title="เลื่อนขึ้น">${U.icon('arrow-up')}</button><button class="btn btn-xs btn-ghost" data-rm="${i}" style="color:var(--danger)">${U.icon('trash-2')}</button></td></tr>`).join('')}
+        </tbody></table></div>` : `<div class="empty" style="padding:18px">${U.icon('landmark')}<p>ยังไม่มีบัญชีธนาคาร</p></div>`}
+      <button class="btn btn-soft mt-1" id="bank-add">${U.icon('plus')}เพิ่มบัญชีธนาคาร</button>
+
+      <h4 class="mt-3" style="margin-bottom:4px">ประเภทการชำระเงินที่รับ</h4>
+      <div class="flex" style="flex-wrap:wrap;gap:6px 22px">${Pay.METHODS.map(([k, l]) => `<label class="check"><input type="checkbox" data-m="${k}" ${m[k] ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+      <div class="form-grid mt-2">
+        <div class="field"><label>เลขพร้อมเพย์ (เบอร์โทร / เลขผู้เสียภาษี)</label><input id="pp" value="${U.esc(pc.promptPay)}" placeholder="เช่น 0955677704"></div>
+        <div class="field"><label>ชื่อบัญชีพร้อมเพย์</label><input id="ppn" value="${U.esc(pc.promptPayName)}" placeholder="${U.esc(Store.state.company.name)}"></div>
+        <div class="field full"><label>เช็คสั่งจ่ายในนาม</label><input id="chq" value="${U.esc(pc.chequePayee)}" placeholder="${U.esc(Store.state.company.name)}"></div>
+        <div class="field full"><label>ข้อความเพิ่มเติม (แสดงใต้ช่องทางชำระเงิน)</label><textarea id="pex" rows="2" placeholder="เช่น กรุณาส่งหลักฐานการโอนมาที่ ${U.esc(Store.state.company.email || 'อีเมลบริษัท')} หรือ Line: ...">${U.esc(pc.extra)}</textarea></div>
+      </div>
+      <h4 class="mt-2" style="margin-bottom:4px">แสดงอัตโนมัติในเอกสาร</h4>
+      <div class="flex" style="flex-wrap:wrap;gap:6px 22px">${Pay.DOCS.map((t) => `<label class="check"><input type="checkbox" data-show="${t}" ${pc.showOn[t] ? 'checked' : ''}> ${DOC_TYPES[t].short}</label>`).join('')}</div>
+      <div class="mt-3 flex"><button class="btn btn-primary" id="pay-save">${U.icon('save')}บันทึกการตั้งค่า</button><button class="btn btn-outline" id="pay-pv">${U.icon('eye')}ดูตัวอย่างบนใบวางบิล</button></div>`;
+      U.refreshIcons();
+      const collect = () => {
+        pc.methods = {}; body.querySelectorAll('[data-m]').forEach((x) => { if (x.checked) pc.methods[x.dataset.m] = true; });
+        pc.showOn = {}; body.querySelectorAll('[data-show]').forEach((x) => { if (x.checked) pc.showOn[x.dataset.show] = true; });
+        body.querySelectorAll('[data-def]').forEach((x) => { pc.banks[+x.dataset.def].def = x.checked; });
+        pc.promptPay = U.$('#pp').value.trim(); pc.promptPayName = U.$('#ppn').value.trim(); pc.chequePayee = U.$('#chq').value.trim(); pc.extra = U.$('#pex').value.trim();
+      };
+      const save = (msg = 'บันทึกการตั้งค่าแล้ว') => { collect(); Store.state.company.payment = JSON.parse(JSON.stringify(pc)); Store.save({ silent: true }); U.toast(msg); };
+      const edit = (i) => {
+        collect();
+        const b = i == null ? { id: U.uid(), bank: '', branch: '', accName: Store.state.company.name, accNo: '', type: 'savings', def: true } : { ...pc.banks[i] };
+        U.modal({ title: `${U.icon('landmark')} ${i == null ? 'เพิ่ม' : 'แก้ไข'}บัญชีธนาคาร`,
+          body: `<div class="form-grid" id="bank-f">
+            <div class="field full"><label class="req">ธนาคาร</label><input name="bank" list="bank-list" value="${U.esc(b.bank)}" placeholder="เลือกหรือพิมพ์ชื่อธนาคาร"><datalist id="bank-list">${Pay.BANKS.map((x) => `<option value="${x}">`).join('')}</datalist></div>
+            <div class="field"><label>สาขา</label><input name="branch" value="${U.esc(b.branch)}" placeholder="เช่น เซ็นทรัล รัตนาธิเบศร์"></div>
+            <div class="field"><label>ประเภทบัญชี</label><select name="type">${Object.entries(Pay.TYPES).map(([v, l]) => U.opt(v, l, b.type)).join('')}</select></div>
+            <div class="field full"><label class="req">ชื่อบัญชี</label><input name="accName" value="${U.esc(b.accName)}"></div>
+            <div class="field full"><label class="req">เลขที่บัญชี</label><input name="accNo" inputmode="numeric" value="${U.esc(b.accNo)}" placeholder="xxx-x-xxxxx-x"></div>
+          </div>`,
+          footer: `<button class="btn btn-ghost" data-close>ยกเลิก</button><button class="btn btn-primary" data-ok>${U.icon('save')}บันทึก</button>`,
+          onOpen: (root, close) => {
+            root.querySelector('[data-ok]').onclick = () => {
+              const f = U.formData(root.querySelector('#bank-f'));
+              if (!f.bank.trim() || !f.accName.trim() || !f.accNo.trim()) return U.toast('กรอกธนาคาร ชื่อบัญชี และเลขที่บัญชีให้ครบ', 'error');
+              Object.assign(b, { bank: f.bank.trim(), branch: f.branch.trim(), type: f.type, accName: f.accName.trim(), accNo: Pay.fmtNo(f.accNo.trim()) });
+              if (i == null) pc.banks.push(b); else pc.banks[i] = b;
+              if (i == null && !pc.methods.transfer) pc.methods.transfer = true;
+              Store.state.company.payment = JSON.parse(JSON.stringify(pc)); Store.save({ silent: true });
+              close(); draw(); U.toast('บันทึกบัญชีธนาคารแล้ว');
+            };
+          } });
+      };
+      U.$('#bank-add').onclick = () => edit(null);
+      body.querySelectorAll('[data-ed]').forEach((x) => x.onclick = () => edit(+x.dataset.ed));
+      body.querySelectorAll('[data-up]').forEach((x) => x.onclick = () => { collect(); const i = +x.dataset.up; [pc.banks[i - 1], pc.banks[i]] = [pc.banks[i], pc.banks[i - 1]]; save('เรียงลำดับแล้ว'); draw(); });
+      body.querySelectorAll('[data-rm]').forEach((x) => x.onclick = async () => { const b = pc.banks[+x.dataset.rm]; if (!(await U.confirm(`ลบบัญชี ${b.bank} ${b.accNo}?`, { danger: true }))) return; collect(); pc.banks.splice(+x.dataset.rm, 1); save('ลบบัญชีแล้ว'); draw(); });
+      U.$('#pay-save').onclick = () => save();
+      U.$('#pay-pv').onclick = () => {
+        save();
+        const bn = Store.state.documents.filter((d) => d.type === 'BN').sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+        if (bn) Print.doc(bn.id); else U.toast('ยังไม่มีใบวางบิลให้ดูตัวอย่าง', 'info');
+      };
+    };
+    draw();
   } else if (tab === 'tax') {
     body.innerHTML = `<div class="form-grid">
       <label class="check full"><input type="checkbox" name="vatRegistered" ${c.vatRegistered ? 'checked' : ''}> จดทะเบียนภาษีมูลค่าเพิ่ม (VAT)</label>

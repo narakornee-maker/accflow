@@ -1,6 +1,48 @@
 /* ============================================================
  * Print: Preview + edit panel, A4 templates (modern / classic), payslip
  * ============================================================ */
+/* ============================================================
+ * Pay: บัญชีรับชำระเงิน / ช่องทางการชำระเงิน (ตั้งค่าที่ “ตั้งค่า → ช่องทางชำระเงิน”)
+ * ============================================================ */
+const Pay = {
+  BANKS: ['ธนาคารกสิกรไทย', 'ธนาคารกรุงเทพ', 'ธนาคารไทยพาณิชย์', 'ธนาคารกรุงไทย', 'ธนาคารกรุงศรีอยุธยา', 'ธนาคารทหารไทยธนชาต (ttb)', 'ธนาคารออมสิน', 'ธนาคารเพื่อการเกษตรและสหกรณ์การเกษตร (ธ.ก.ส.)', 'ธนาคารอาคารสงเคราะห์', 'ธนาคารยูโอบี', 'ธนาคารซีไอเอ็มบี ไทย', 'ธนาคารเกียรตินาคินภัทร', 'ธนาคารแลนด์ แอนด์ เฮ้าส์', 'ธนาคารทิสโก้'],
+  TYPES: { savings: 'ออมทรัพย์', current: 'กระแสรายวัน', fixed: 'ฝากประจำ' },
+  METHODS: [['transfer', 'โอนเงินเข้าบัญชี'], ['promptpay', 'พร้อมเพย์'], ['cheque', 'เช็ค'], ['cash', 'เงินสด']],
+  DOCS: ['QT', 'BN', 'RC'],
+  cfg() {
+    const p = Store.state.company.payment || {};
+    return { banks: [], promptPay: '', promptPayName: '', methods: { transfer: true, cheque: true }, chequePayee: '', extra: '', showOn: { BN: true }, ...p };
+  },
+  /** การตั้งค่าที่ใช้กับเอกสารนี้ (เอกสารเลือกเองได้จากหน้าตัวอย่างก่อนพิมพ์) */
+  forDoc(d) {
+    const c = this.cfg();
+    const own = d.payBox || {};
+    const show = own.show != null ? own.show : !!c.showOn[d.type];
+    const ids = own.banks || c.banks.filter((b) => b.def !== false).map((b) => b.id);
+    return { show, banks: c.banks.filter((b) => ids.includes(b.id)), c };
+  },
+  fmtNo(n) { const x = String(n || '').replace(/\D/g, ''); return x.length === 10 ? `${x.slice(0, 3)}-${x.slice(3, 4)}-${x.slice(4, 9)}-${x.slice(9)}` : (n || ''); },
+  /** กล่อง “ช่องทางการชำระเงิน” บนเอกสาร */
+  box(d) {
+    if (DOC_TYPES[d.type].group !== 'sales') return '';
+    const f = this.forDoc(d), c = f.c;
+    if (!f.show) return '';
+    const m = c.methods || {};
+    const rows = f.banks.map((b) => `<div class="pb-bank"><b>${U.esc(b.bank)}</b>${b.branch ? ` <span>สาขา${U.esc(b.branch.replace(/^สาขา\s*/, ''))}</span>` : ''}
+      <div>ชื่อบัญชี <b>${U.esc(b.accName)}</b></div><div>เลขที่บัญชี <b class="pb-no">${U.esc(this.fmtNo(b.accNo))}</b>${b.type ? ` <span>(${this.TYPES[b.type] || U.esc(b.type)})</span>` : ''}</div></div>`).join('');
+    const tick = (on) => `<span class="pb-ck">${on ? '✓' : ''}</span>`;
+    const methods = this.METHODS.filter(([k]) => m[k]).map(([k, l]) => {
+      let t = l;
+      if (k === 'promptpay' && c.promptPay) t += ` <b>${U.esc(c.promptPay)}</b>${c.promptPayName ? ` (${U.esc(c.promptPayName)})` : ''}`;
+      if (k === 'cheque') t += ` สั่งจ่ายในนาม <b>“${U.esc(c.chequePayee || Store.state.company.name)}”</b> ขีดคร่อม A/C Payee Only`;
+      return `<div class="pb-m">${tick(true)}${t}</div>`;
+    }).join('');
+    if (!rows && !methods && !c.extra) return '';
+    return `<div class="paybox"><div class="pb-h">ช่องทางการชำระเงิน <small>/ Payment Information</small></div>
+      ${rows ? `<div class="pb-banks">${rows}</div>` : ''}${methods ? `<div class="pb-ms">${methods}</div>` : ''}${c.extra ? `<div class="pb-x">${U.esc(c.extra)}</div>` : ''}</div>`;
+  },
+};
+
 const Print = {
   DEFAULTS: { template: 'modern', color: '#2E7D32', copies: 'original', showLogo: true, showStamp: true, showDiscount: true, showVat: true, useSign: true, useStampImg: true,
     signLeft: '', signRight: '', footer: '' },
@@ -25,6 +67,16 @@ const Print = {
     .void { position: absolute; top: 40%; left: 0; right: 0; text-align: center; font-size: 110px; color: rgba(220, 38, 38, .15); transform: rotate(-20deg); font-weight: 800; pointer-events: none; }
     .tbar { position: sticky; top: 0; z-index: 2; background: #0f172a; color: #fff; padding: 10px 16px; display: flex; gap: 10px; align-items: center; justify-content: center; }
     .tbar button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 0; cursor: pointer; background: #2563eb; color: #fff; }
+
+
+    /* ---------- payment box ---------- */
+    .paybox { margin-top: 14px; border: 1px solid #d1d5db; border-radius: 6px; padding: 9px 12px; font-size: 11.5px; line-height: 1.55; break-inside: avoid; }
+    .pb-h { font-weight: 700; color: var(--c); margin-bottom: 4px; } .pb-h small { color: #6b7280; font-weight: 400; }
+    .pb-banks { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 6px 18px; }
+    .pb-bank { border-left: 3px solid var(--c); padding-left: 8px; } .pb-bank span { color: #6b7280; } .pb-no { font-size: 13px; letter-spacing: .3px; }
+    .pb-ms { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 6px; }
+    .pb-ck { display: inline-block; width: 11px; height: 11px; border: 1px solid #374151; border-radius: 2px; margin-right: 5px; font-size: 10px; line-height: 10px; text-align: center; font-weight: 700; color: var(--c); vertical-align: -1px; }
+    .pb-x { margin-top: 5px; color: #374151; white-space: pre-wrap; }
 
     /* ---------- modern ---------- */
     .m .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
@@ -198,6 +250,7 @@ const Print = {
           <div class="sep grand"><span>จำนวนเงินรวมทั้งสิ้น</span><span class="num">${U.money(c.total)}</span></div>
           ${c.wht ? `<div><span>หัก ณ ที่จ่าย ${c.whtRate} %</span><span class="num">${U.money(c.wht)}</span></div><div class="sep grand"><span>ยอดชำระสุทธิ</span><span class="num">${U.money(c.net)}</span></div>` : ''}
         </div></div>
+      ${Pay.box(d)}
       <div class="spacer"></div>
       <div class="sign"><div><div class="sig-sp"></div><div class="ln">${U.esc(signL.split(' / ')[0])}${signL.includes(' / ') ? ` <small>/ ${U.esc(signL.split(' / ')[1])}</small>` : ''}<br>วันที่ <small>/ Date</small> ......................</div></div>
         <div class="stamp">${stampHtml}</div>
@@ -225,6 +278,7 @@ const Print = {
           ${c.vatRate ? `<div><span>มูลค่าก่อนภาษี</span><span class="num">${U.money(c.base)}</span></div><div><span>ภาษีมูลค่าเพิ่ม ${c.vatRate}%</span><span class="num">${U.money(c.vat)}</span></div>` : ''}
           <div class="g"><span>จำนวนเงินรวมทั้งสิ้น</span><span class="num">${U.money(c.total)}</span></div>
           ${c.wht ? `<div><span>หักภาษี ณ ที่จ่าย ${c.whtRate}%</span><span class="num">${U.money(c.wht)}</span></div><div class="n"><span>ยอดชำระสุทธิ</span><span class="num">${U.money(c.net)}</span></div>` : ''}</div></div>
+      ${Pay.box(d)}
       <div class="spacer"></div>
       <div class="sign"><div><div class="sig-sp"></div><div class="ln">${U.esc(signL)}</div><div class="d">วันที่ ........../........../..........</div></div><div class="stamp">${stampHtml}</div>
         <div>${sigImg}<div class="ln">${U.esc(signR)}${co.signName ? `<br>(${U.esc(co.signName)})` : ''}</div><div class="d">วันที่ ${useSig ? fullDate : '........../........../..........'}</div></div></div>
@@ -265,6 +319,10 @@ const Print = {
           <div class="pv-sec"><h4>${U.icon('badge-check')}${sales ? 'ข้อมูลผู้ขาย (พนักงานขาย)' : 'ผู้สั่งซื้อ'}</h4>
             ${inp('salesPerson', sales ? 'ชื่อพนักงานขาย' : 'ชื่อผู้สั่งซื้อ')}${inp('salesPhone', 'เบอร์โทร', '', 'tel')}${inp('project', 'โปรเจกต์ / งาน')}${inp('reference', 'เลขที่อ้างอิง')}
             <div class="field"><label>หมายเหตุ</label><textarea data-d="note" rows="3">${U.esc(d.note || '')}</textarea></div></div>
+          ${sales ? (() => { const pf = Pay.forDoc(d); const ids = pf.banks.map((b) => b.id); const all = pf.c.banks; return `<div class="pv-sec"><h4>${U.icon('landmark')}ช่องทางการชำระเงิน</h4>
+            <label class="check"><input type="checkbox" data-pay="show" ${pf.show ? 'checked' : ''}> แสดงในเอกสารนี้</label>
+            ${all.length ? all.map((b) => `<label class="check"><input type="checkbox" data-pay-bank="${b.id}" ${ids.includes(b.id) ? 'checked' : ''}> ${U.esc(b.bank)} ${U.esc(Pay.fmtNo(b.accNo))}</label>`).join('') : ''}
+            <div class="small muted">${all.length ? '' : 'ยังไม่มีบัญชีธนาคาร — '}<a href="#/settings/payment" data-gosign>ตั้งค่าบัญชีรับชำระเงิน</a></div></div>`; })() : ''}
           ${(d.fileIds || []).filter((x) => Files.get(x)).length ? `<div class="pv-sec"><h4>${U.icon('paperclip')}ไฟล์แนบ (เปิดเพื่อพิมพ์/ส่งแยก)</h4>
             ${d.fileIds.filter((x) => Files.get(x)).map((x) => { const f = Files.get(x); return `<div class="attach-item">${U.icon(Files.icon(f))}<div class="flex-1" style="min-width:0">${Files.kindChip(f.kind)} <b>${U.esc(f.refNo || '')}</b><div class="muted small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${U.esc(f.name || '')}</div></div><button type="button" class="btn btn-xs btn-outline" onclick="Files.open('${x}')">${U.icon('external-link')}เปิด</button></div>`; }).join('')}</div>` : ''}
           <div class="pv-sec"><h4>${U.icon('pen-line')}ลายเซ็นและท้ายกระดาษ</h4>
@@ -286,11 +344,18 @@ const Print = {
           if (!dirty) return;
           const cur = Store.get('documents', d.id);
           ['contactName', 'contactPhone', 'contactEmail', 'salesPerson', 'salesPhone', 'project', 'reference', 'note'].forEach((k) => (cur[k] = d[k] || ''));
+          if (d.payBox) cur.payBox = d.payBox;
           Store.upsert('documents', cur); dirty = false;
         };
         root.querySelector('.pv-side').addEventListener('input', (e) => {
           const t = e.target;
           if (t.dataset.d) { d[t.dataset.d] = t.value; dirty = true; renderLater(); }
+          if (t.dataset.pay || t.dataset.payBank) {
+            const pf = Pay.forDoc(d);
+            d.payBox = { show: root.querySelector('[data-pay=show]').checked, banks: [...root.querySelectorAll('[data-pay-bank]')].filter((x) => x.checked).map((x) => x.dataset.payBank) };
+            if (!pf.c.banks.length) delete d.payBox.banks;
+            dirty = true; render();
+          }
           if (t.dataset.o) {
             o[t.dataset.o] = t.type === 'checkbox' ? t.checked : t.value;
             if (t.dataset.o === 'color') root.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('on', b.dataset.color === t.value));
